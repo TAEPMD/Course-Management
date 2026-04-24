@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NIEM Project Management - ระบบจัดการหลักสูตร</title>
+    <!-- CDN Libraries (inlined by vite-plugin-singlefile on build) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary: #1e3a8a;
+            --primary-light: #3b82f6;
+            --accent: #6366f1;
+            --bg-main: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            --sidebar-width: 260px;
+        }
+
+        .dark {
+            --bg-main: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --border-color: #334155;
+            --glass-bg: rgba(30, 41, 59, 0.7);
+        }
+
+        body { 
+            font-family: 'Plus Jakarta Sans', 'Sarabun', sans-serif; 
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            overflow: hidden;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        /* Glassmorphism */
+        .glass {
+            background: var(--glass-bg, rgba(255, 255, 255, 0.7));
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid var(--border-color);
+        }
+
+        /* Card styles */
+        .card-modern {
+            background: var(--card-bg);
+            border-radius: 20px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.05);
+            transition: transform 0.2s, box-shadow 0.2s, background-color 0.3s, border-color 0.3s;
+        }
+
+        /* Input Modern */
+        .input-modern {
+            width: 100%;
+            background-color: var(--bg-main);
+            border: 2px solid var(--border-color);
+            border-radius: 16px;
+            padding: 12px 16px;
+            font-weight: 600;
+            color: var(--text-main);
+            transition: all 0.2s;
+            outline: none;
+        }
+        .input-modern:focus {
+            border-color: var(--primary-light);
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+            background-color: var(--card-bg);
+        }
+        .input-modern::placeholder { color: var(--text-muted); }
+
+        .dark .bg-white { background-color: var(--card-bg) !important; }
+        .dark .bg-gray-50 { background-color: var(--bg-main) !important; }
+        .dark .bg-slate-50 { background-color: var(--bg-main) !important; }
+        .dark .text-gray-900 { color: var(--text-main) !important; }
+        .dark .text-gray-800 { color: var(--text-main) !important; }
+        .dark .text-gray-700 { color: var(--text-main) !important; }
+        .dark .text-gray-600 { color: var(--text-muted) !important; }
+        .dark .text-gray-500 { color: var(--text-muted) !important; }
+        .dark .border-gray-100 { border-color: var(--border-color) !important; }
+        .dark .border-gray-200 { border-color: var(--border-color) !important; }
+        .dark .divide-gray-50 > * + * { border-color: var(--border-color) !important; }
+        .dark .bg-blue-900 { background-color: #0f172a !important; } /* Sidebar dark */
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* Animations */
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideInRight { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes pulse-soft { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.5; } }
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+        
+        .animate-fade { animation: fadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .animate-slide-right { animation: slideInRight 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .animate-float { animation: float 4s ease-in-out infinite; }
+
+        /* Modern Gradient Accents */
+        .grad-primary { background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); }
+        .grad-accent { background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); }
+        .grad-success { background: linear-gradient(135deg, #10b981 0%, #34d399 100%); }
+        .grad-warning { background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%); }
+        
+        .sidebar-item {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            margin: 6px 14px;
+            border-radius: 14px;
+        }
+        .sidebar-item.active {
+            background: linear-gradient(to right, white, #f1f5f9);
+            color: var(--primary);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+        .sidebar-item:hover:not(.active) {
+            background-color: rgba(255, 255, 255, 0.08);
+            transform: translateX(4px);
+        }
+
+        /* Card styles */
+        .card-modern {
+            background: var(--card-bg);
+            border-radius: 24px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .card-modern:hover {
+            transform: translateY(-4px) scale(1.01);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+            border-color: var(--primary-light);
+        }
+
+        /* Table modern */
+        .table-container { border-radius: 20px; overflow: hidden; border: 1px solid var(--border-color); }
+        th { background-color: var(--bg-main); font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; color: var(--text-muted); }
+
+        /* Tab Active Styles */
+        .tab-btn { position: relative; transition: all 0.3s; }
+        .tab-btn.tab-active { color: var(--primary); }
+        .tab-btn.tab-active::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 20%;
+            right: 20%;
+            height: 3px;
+            background: var(--primary);
+            border-radius: 10px;
+        }
+
+        /* Mobile Bottom Nav */
+        @media (max-width: 768px) {
+            .sidebar { display: none; }
+            .main-content { margin-left: 0 !important; margin-bottom: 70px; }
+            .mobile-nav { display: flex; }
+        }
+
+        /* Status Badges */
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+        }
+        .status-draft { background: #f1f5f9; color: #475569; }
+        .status-active { background: #e0f2fe; color: #0369a1; }
+        .status-done { background: #dcfce7; color: #15803d; }
+
+        /* Loader */
+        .loader-ring {
+            width: 40px; height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Login Redesign */
+        .login-stage {
+            background:
+                radial-gradient(circle at 15% 15%, rgba(59, 130, 246, 0.2), transparent 35%),
+                radial-gradient(circle at 85% 90%, rgba(30, 58, 138, 0.25), transparent 40%),
+                linear-gradient(135deg, #eff6ff 0%, #dbeafe 48%, #e0e7ff 100%);
+        }
+
+        .login-shell {
+            display: grid;
+            grid-template-columns: 1.1fr 1fr;
+            border-radius: 32px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            box-shadow: 0 30px 80px rgba(30, 58, 138, 0.18);
+            background: rgba(255, 255, 255, 0.72);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+        }
+
+        .login-brand {
+            background: linear-gradient(145deg, #0b2a6e 0%, #1e3a8a 55%, #2563eb 100%);
+            color: #e0e7ff;
+            position: relative;
+        }
+
+        .login-brand::before,
+        .login-brand::after {
+            content: '';
+            position: absolute;
+            border-radius: 9999px;
+            pointer-events: none;
+        }
+
+        .login-brand::before {
+            width: 280px;
+            height: 280px;
+            background: rgba(147, 197, 253, 0.2);
+            top: -120px;
+            right: -100px;
+        }
+
+        .login-brand::after {
+            width: 220px;
+            height: 220px;
+            background: rgba(191, 219, 254, 0.12);
+            bottom: -90px;
+            left: -90px;
+        }
+
+        .login-auth {
+            background: rgba(255, 255, 255, 0.9);
+        }
+
+        .login-kpi {
+            border: 1px solid rgba(191, 219, 254, 0.35);
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 18px;
+            padding: 12px 14px;
+        }
+
+        @media (max-width: 1024px) {
+            .login-shell { grid-template-columns: 1fr; }
+            .login-auth { border-radius: 0; }
+        }
+    </style>
+</head>
+<body class="flex h-screen overflow-hidden">
+
+    <!-- Sidebar (Desktop) -->
+    <aside id="sidebar" class="sidebar w-[260px] bg-blue-900 h-full text-white flex flex-col flex-shrink-0 transition-all duration-300 hidden">
+        <div class="p-6 flex items-center space-x-3">
+            <div id="logo-container" class="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-blue-900 shadow-lg overflow-hidden">
+                <i id="logo-icon" class="fa-solid fa-star-of-life text-xl"></i>
+                <img id="logo-img" src="" class="hidden w-full h-full object-cover">
+            </div>
+            <div>
+                <h1 class="font-bold text-lg leading-tight truncate w-32" id="display-site-name">NIEM</h1>
+                <p class="text-[10px] text-blue-300 font-medium tracking-widest uppercase">Project Portal</p>
+            </div>
+        </div>
+
+        <nav class="flex-1 mt-4 space-y-1">
+            <button onclick="app.showDashboard()" id="nav-dashboard" class="sidebar-item active w-[calc(100%-24px)] flex items-center px-4 py-3 space-x-3 text-sm font-medium">
+                <i class="fa-solid fa-grid-2 text-lg"></i>
+                <span>ภาพรวมหลัก</span>
+            </button>
+            <button onclick="app.showAnnualPlan()" id="nav-annual" class="sidebar-item w-[calc(100%-24px)] flex items-center px-4 py-3 space-x-3 text-sm font-medium text-blue-200">
+                <i class="fa-solid fa-calendar-days text-lg"></i>
+                <span>แผนรายปี</span>
+            </button>
+            <button onclick="app.showMonthlyPlan()" id="nav-monthly" class="sidebar-item w-[calc(100%-24px)] flex items-center px-4 py-3 space-x-3 text-sm font-medium text-blue-200">
+                <i class="fa-solid fa-calendar-check text-lg"></i>
+                <span>โครงการรายเดือน</span>
+            </button>
+            <button onclick="app.showWeeklyPlan()" id="nav-weekly" class="sidebar-item w-[calc(100%-24px)] flex items-center px-4 py-3 space-x-3 text-sm font-medium text-blue-200">
+                <i class="fa-solid fa-calendar-week text-lg"></i>
+                <span>ตารางรายสัปดาห์</span>
+            </button>
+            <button onclick="app.showUsers()" id="nav-users" class="sidebar-item w-[calc(100%-24px)] flex items-center px-4 py-3 space-x-3 text-sm font-medium text-blue-200">
+                <i class="fa-solid fa-users-gear text-lg"></i>
+                <span>ผู้ใช้งานระบบ</span>
+            </button>
+            <button onclick="app.showSettings()" id="nav-settings" class="sidebar-item w-[calc(100%-24px)] flex items-center px-4 py-3 space-x-3 text-sm font-medium text-blue-200">
+                <i class="fa-solid fa-gear text-lg"></i>
+                <span>ตั้งค่าระบบ</span>
+            </button>
+        </nav>
+
+        <div class="p-4 mt-auto">
+            <div class="bg-blue-800/50 rounded-2xl p-4 mb-4">
+                <div class="flex items-center space-x-3 mb-2">
+                    <div id="sidebar-role-avatar" class="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-xs font-bold">AD</div>
+                    <div class="overflow-hidden">
+                        <p id="sidebar-user-name" class="text-xs font-bold truncate">Administrator</p>
+                        <select id="role-simulator" onchange="app.simulateRole(this.value)" class="bg-transparent text-[10px] text-blue-300 border-none p-0 cursor-pointer focus:ring-0">
+                            <option value="Admin" class="bg-blue-900">Role: Admin</option>
+                            <option value="Staff" class="bg-blue-900">Role: Staff</option>
+                            <option value="Instructor" class="bg-blue-900">Role: Instructor</option>
+                            <option value="Trainee" class="bg-blue-900">Role: Trainee</option>
+                        </select>
+                    </div>
+                </div>
+                <button onclick="app.logout()" class="w-full py-2 text-xs font-bold text-red-300 hover:text-red-100 transition flex items-center justify-center">
+                    <i class="fa-solid fa-arrow-right-from-bracket mr-2"></i> ออกจากระบบ
+                </button>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col min-w-0 relative h-full overflow-hidden">
+        
+        <!-- Top Header (Inside Content) -->
+        <header id="top-header" class="h-16 border-b border-gray-100 bg-white/80 backdrop-blur-md sticky top-0 z-30 px-4 flex items-center justify-between hidden transition-colors duration-300">
+            <div class="flex items-center space-x-4">
+                <button id="mobile-menu-btn" class="md:hidden p-2 text-gray-500 hover:bg-gray-100 rounded-lg transition">
+                    <i class="fa-solid fa-bars-staggered"></i>
+                </button>
+                <div class="md:hidden flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50 overflow-hidden shrink-0">
+                    <i id="header-logo-icon" class="fa-solid fa-star-of-life text-blue-900"></i>
+                    <img id="header-logo-img" src="" class="hidden w-full h-full object-cover">
+                </div>
+                <h2 id="header-title" class="font-bold text-gray-800">หน้าแรก</h2>
+            </div>
+            <div class="flex items-center space-x-3">
+                <button onclick="app.toggleDarkMode()" class="p-2 text-gray-400 hover:text-blue-600 transition" id="dark-mode-toggle">
+                    <i class="fa-solid fa-moon"></i>
+                </button>
+                <button class="p-2 text-gray-400 hover:text-blue-600 transition"><i class="fa-solid fa-bell"></i></button>
+                <div class="h-8 w-8 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-500">
+                    <i class="fa-solid fa-user text-xs"></i>
+                </div>
+            </div>
+        </header>
+
+        <div class="flex-1 overflow-y-auto" id="scroll-container">
+            
+            <!-- View: Login (Redesigned) -->
+            <div id="view-login" class="login-stage min-h-full p-4 md:p-8 relative overflow-hidden">
+                <div class="absolute top-10 left-[8%] w-36 h-36 border border-blue-200/70 rounded-full"></div>
+                <div class="absolute bottom-10 right-[6%] w-52 h-52 border border-indigo-200/70 rounded-[30px] rotate-12"></div>
+
+                <div class="max-w-6xl mx-auto w-full h-full flex items-center justify-center relative z-10">
+                    <div class="login-shell w-full animate-fade">
+                        <section class="login-brand hidden lg:flex flex-col justify-between p-10 xl:p-12">
+                            <div class="relative z-10">
+                                <div class="inline-flex items-center px-4 py-2 rounded-full bg-white/15 border border-white/20 text-[11px] font-bold tracking-widest uppercase mb-6">
+                                    Emergency Learning Portal
+                                </div>
+                                <h1 class="text-4xl xl:text-5xl font-black leading-tight text-white">Welcome to the<br>Training Command Center</h1>
+                                <p class="mt-5 text-sm xl:text-base text-blue-100/90 leading-relaxed">บริหารจัดการหลักสูตร บุคลากร และแผนงานประจำปีในพื้นที่เดียวด้วยระบบที่ออกแบบสำหรับหน่วยงานแพทย์ฉุกเฉิน</p>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4 relative z-10">
+                                <div class="login-kpi">
+                                    <p class="text-2xl font-black text-white">24/7</p>
+                                    <p class="text-xs font-semibold uppercase tracking-wider text-blue-100/80">System Ready</p>
+                                </div>
+                                <div class="login-kpi">
+                                    <p class="text-2xl font-black text-white">Secure</p>
+                                    <p class="text-xs font-semibold uppercase tracking-wider text-blue-100/80">PIN Authentication</p>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="login-auth p-7 sm:p-10 lg:p-12">
+                            <div class="max-w-md mx-auto">
+                                <div class="flex items-center justify-between mb-8">
+                                    <div>
+                                        <p class="text-[11px] font-black tracking-widest uppercase text-blue-500">Sign In</p>
+                                        <h2 id="login-site-name" class="text-3xl font-black text-slate-900 tracking-tight">NIEM Management</h2>
+                                        <p class="text-sm text-slate-500 mt-2">กรอกรหัส PIN 5 หลักเพื่อเข้าสู่ระบบ</p>
+                                    </div>
+                                    <div class="w-14 h-14 rounded-2xl bg-blue-900 flex items-center justify-center text-white shadow-xl shadow-blue-900/30 overflow-hidden border-2 border-white">
+                                        <i id="login-logo-icon" class="fa-solid fa-star-of-life text-2xl"></i>
+                                        <img id="login-logo-img" src="" class="hidden w-full h-full object-cover bg-white">
+                                    </div>
+                                </div>
+
+                                <div class="flex justify-center gap-2.5 mb-6" id="pin-display">
+                                    <div class="w-11 h-13 border-2 border-slate-300 rounded-xl flex items-center justify-center text-2xl font-bold text-blue-900 transition-all duration-300"></div>
+                                    <div class="w-11 h-13 border-2 border-slate-300 rounded-xl flex items-center justify-center text-2xl font-bold text-blue-900 transition-all duration-300"></div>
+                                    <div class="w-11 h-13 border-2 border-slate-300 rounded-xl flex items-center justify-center text-2xl font-bold text-blue-900 transition-all duration-300"></div>
+                                    <div class="w-11 h-13 border-2 border-slate-300 rounded-xl flex items-center justify-center text-2xl font-bold text-blue-900 transition-all duration-300"></div>
+                                    <div class="w-11 h-13 border-2 border-slate-300 rounded-xl flex items-center justify-center text-2xl font-bold text-blue-900 transition-all duration-300"></div>
+                                </div>
+
+                                <div class="mb-5">
+                                    <input id="login-pin-input" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="5" autocomplete="one-time-code" class="input-modern text-center tracking-[0.5em] text-lg bg-slate-50" placeholder="พิมพ์ PIN 5 หลัก">
+                                </div>
+
+                                <div class="grid grid-cols-3 gap-3 mb-7" id="login-numpad">
+                                    <!-- Generated by JS -->
+                                </div>
+
+                                <div id="login-loader" class="hidden text-center">
+                                    <div class="loader-ring mx-auto mb-2"></div>
+                                    <p class="text-xs text-blue-600 font-bold uppercase tracking-widest">Verifying...</p>
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View: Dashboard (Modern Grid) -->
+            <div id="view-dashboard" class="hidden p-6 max-w-7xl mx-auto space-y-8 animate-fade relative">
+                <!-- Floating Decorative Elements -->
+                <div class="absolute top-0 right-0 w-64 h-64 bg-blue-400/10 rounded-full blur-3xl animate-float pointer-events-none"></div>
+                <div class="absolute bottom-20 left-10 w-48 h-48 bg-indigo-400/10 rounded-full blur-3xl animate-float pointer-events-none" style="animation-delay: -2s"></div>
+
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+                    <div>
+                        <h1 class="text-3xl font-bold text-gray-900 tracking-tight">Project Dashboard</h1>
+                        <p class="text-gray-500 text-sm font-medium">จัดการหลักสูตรและโครงการของคุณอย่างมืออาชีพ</p>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <button onclick="app.createNewProject()" class="grad-primary hover:shadow-blue-900/40 text-white px-8 py-4 rounded-2xl font-bold text-sm shadow-xl transition-all hover:scale-105 active:scale-95 flex items-center group">
+                            <i class="fa-solid fa-plus mr-2 group-hover:rotate-90 transition-transform duration-300"></i> เพิ่มโครงการใหม่
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Stats Widgets -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 relative z-10">
+                    <div class="card-modern p-6 overflow-hidden relative group">
+                        <div class="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-125 transition-transform duration-500">
+                            <i class="fa-solid fa-folder-tree text-6xl"></i>
+                        </div>
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="w-14 h-14 rounded-2xl grad-primary text-white flex items-center justify-center shadow-lg shadow-blue-900/20">
+                                <i class="fa-solid fa-folder-tree text-xl"></i>
+                            </div>
+                            <span class="text-[10px] font-black text-blue-500 bg-blue-50 dark:bg-blue-900/30 px-3 py-1.5 rounded-xl tracking-tighter">TOTAL</span>
+                        </div>
+                        <h3 class="text-sm font-bold text-gray-400 uppercase tracking-widest">โครงการทั้งหมด</h3>
+                        <div class="flex items-baseline space-x-2">
+                            <p class="text-4xl font-black text-gray-900 mt-1" id="stat-projects">0</p>
+                            <span class="text-xs font-bold text-emerald-500"><i class="fa-solid fa-arrow-trend-up"></i> +2</span>
+                        </div>
+                    </div>
+                    <div class="card-modern p-6 overflow-hidden relative group">
+                        <div class="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-125 transition-transform duration-500">
+                            <i class="fa-solid fa-users-viewfinder text-6xl"></i>
+                        </div>
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="w-14 h-14 rounded-2xl grad-accent text-white flex items-center justify-center shadow-lg shadow-indigo-900/20">
+                                <i class="fa-solid fa-users-viewfinder text-xl"></i>
+                            </div>
+                            <span class="text-[10px] font-black text-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-xl tracking-tighter">PEOPLE</span>
+                        </div>
+                        <h3 class="text-sm font-bold text-gray-400 uppercase tracking-widest">เป้าหมายรวม</h3>
+                        <p class="text-4xl font-black text-gray-900 mt-1" id="stat-people">0</p>
+                    </div>
+                    <div class="card-modern p-6 overflow-hidden relative group">
+                        <div class="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-125 transition-transform duration-500">
+                            <i class="fa-solid fa-sack-dollar text-6xl"></i>
+                        </div>
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="w-14 h-14 rounded-2xl grad-success text-white flex items-center justify-center shadow-lg shadow-emerald-900/20">
+                                <i class="fa-solid fa-sack-dollar text-xl"></i>
+                            </div>
+                            <span class="text-[10px] font-black text-emerald-500 bg-emerald-50 dark:bg-emerald-900/30 px-3 py-1.5 rounded-xl tracking-tighter">BUDGET</span>
+                        </div>
+                        <h3 class="text-sm font-bold text-gray-400 uppercase tracking-widest">งบประมาณรวม</h3>
+                        <p class="text-3xl font-black text-gray-900 mt-1" id="stat-budget">0</p>
+                    </div>
+                    <div class="card-modern p-6 overflow-hidden relative group border-orange-100 dark:border-orange-900/30">
+                        <div class="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-125 transition-transform duration-500">
+                            <i class="fa-solid fa-triangle-exclamation text-6xl text-orange-500"></i>
+                        </div>
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="w-14 h-14 rounded-2xl grad-warning text-white flex items-center justify-center shadow-lg shadow-orange-900/20">
+                                <i class="fa-solid fa-heart-pulse text-xl"></i>
+                            </div>
+                            <span class="text-[10px] font-black text-orange-600 bg-orange-50 dark:bg-orange-900/30 px-3 py-1.5 rounded-xl tracking-tighter">RISK</span>
+                        </div>
+                        <h3 class="text-sm font-bold text-gray-400 uppercase tracking-widest">มีความเสี่ยง</h3>
+                        <div class="flex items-baseline space-x-2">
+                            <p class="text-4xl font-black text-orange-600 mt-1" id="stat-risk">0</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Table Section -->
+                <div class="card-modern overflow-hidden">
+                    <div class="p-6 border-b border-gray-100 flex items-center justify-between">
+                        <h3 class="font-bold text-gray-800">รายการโครงการล่าสุด</h3>
+                        <div class="relative">
+                            <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                            <input type="text" placeholder="ค้นหาโครงการ..." class="pl-9 pr-4 py-2 bg-gray-50 border-none rounded-xl text-xs focus:ring-2 focus:ring-blue-500 w-48 md:w-64 transition-all">
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead>
+                                <tr>
+                                    <th class="px-6 py-4">รหัส</th>
+                                    <th class="px-6 py-4">โครงการ</th>
+                                    <th class="px-6 py-4 text-center">สถานะ</th>
+                                    <th class="px-6 py-4 text-center">สุขภาพ</th>
+                                    <th class="px-6 py-4 text-center">ความคืบหน้า</th>
+                                    <th class="px-6 py-4 text-right">งบประมาณ</th>
+                                </tr>
+                            </thead>
+                            <tbody id="project-table-body" class="divide-y divide-gray-50">
+                                <!-- JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View: Monthly Overview -->
+            <div id="view-monthly-plan" class="hidden p-6 max-w-7xl mx-auto space-y-8 animate-fade">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-900">ภาพรวมโครงการรายเดือน</h1>
+                        <p class="text-gray-500 text-sm">ติดตามความคืบหน้าการฝึกอบรมในแต่ละเดือน</p>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <select id="month-filter" onchange="app.renderMonthlyPlan()" class="bg-white border-gray-300 dark:border-gray-600 rounded-2xl py-2 px-4 text-sm font-bold shadow-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="1">ตุลาคม</option>
+                            <option value="2">พฤศจิกายน</option>
+                            <option value="3">ธันวาคม</option>
+                            <option value="4">มกราคม</option>
+                            <option value="5">กุมภาพันธ์</option>
+                            <option value="6">มีนาคม</option>
+                            <option value="7" selected>เมษายน</option>
+                            <option value="8">พฤษภาคม</option>
+                            <option value="9">มิถุนายน</option>
+                            <option value="10">กรกฎาคม</option>
+                            <option value="11">สิงหาคม</option>
+                            <option value="12">กันยายน</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="monthly-list-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <!-- Cards -->
+                </div>
+            </div>
+
+            <!-- View: Annual Plan -->
+            <div id="view-annual-plan" class="hidden p-6 max-w-7xl mx-auto space-y-8 animate-fade">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <h1 class="text-2xl font-bold text-gray-900">แผนปฏิบัติการรายปี (Gantt)</h1>
+                    <div class="flex items-center space-x-4">
+                        <select id="annual-year-filter" onchange="app.renderAnnualTimeline()" class="bg-white border-gray-300 dark:bg-slate-800 dark:border-gray-700 dark:text-white rounded-xl py-2 px-4 text-sm font-bold shadow-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="all">ทุกปีงบประมาณ</option>
+                            <option value="2026">ปี 2026</option>
+                            <option value="2025">ปี 2025</option>
+                        </select>
+                        <button onclick="window.print()" class="p-3 bg-white border border-gray-200 dark:bg-slate-800 dark:border-gray-700 dark:text-white rounded-xl hover:bg-gray-50 transition shadow-sm hidden md:block">
+                            <i class="fa-solid fa-file-export mr-2"></i> Export PDF
+                        </button>
+                    </div>
+                </div>
+                <div class="card-modern p-6 overflow-x-auto">
+                    <table class="w-full min-w-[1000px] border-collapse">
+                        <thead>
+                            <tr class="bg-gray-50">
+                                <th class="p-4 border-b w-[300px]">โครงการ</th>
+                                <th class="p-2 border-b text-[10px]">ต.ค.</th>
+                                <th class="p-2 border-b text-[10px]">พ.ย.</th>
+                                <th class="p-2 border-b text-[10px]">ธ.ค.</th>
+                                <th class="p-2 border-b text-[10px]">ม.ค.</th>
+                                <th class="p-2 border-b text-[10px]">ก.พ.</th>
+                                <th class="p-2 border-b text-[10px]">มี.ค.</th>
+                                <th class="p-2 border-b text-[10px]">เม.ย.</th>
+                                <th class="p-2 border-b text-[10px]">พ.ค.</th>
+                                <th class="p-2 border-b text-[10px]">มิ.ย.</th>
+                                <th class="p-2 border-b text-[10px]">ก.ค.</th>
+                                <th class="p-2 border-b text-[10px]">ส.ค.</th>
+                                <th class="p-2 border-b text-[10px]">ก.ย.</th>
+                            </tr>
+                        </thead>
+                        <tbody id="annual-timeline-body" class="divide-y divide-gray-50">
+                            <!-- JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- View: Weekly -->
+            <div id="view-weekly-plan" class="hidden p-6 max-w-7xl mx-auto space-y-8 animate-fade">
+                <div class="flex items-center justify-between">
+                    <h1 class="text-2xl font-bold text-gray-900">ตารางอบรมรายสัปดาห์</h1>
+                    <div class="flex items-center space-x-3 bg-white p-1 rounded-2xl shadow-sm border border-gray-100">
+                        <button onclick="app.changeWeek(-1)" class="p-2 text-gray-400 hover:text-blue-600 transition"><i class="fa-solid fa-chevron-left"></i></button>
+                        <span id="weekly-date-range" class="px-4 text-sm font-bold text-gray-700">20 เม.ย. - 26 เม.ย. 69</span>
+                        <button onclick="app.changeWeek(1)" class="p-2 text-gray-400 hover:text-blue-600 transition"><i class="fa-solid fa-chevron-right"></i></button>
+                    </div>
+                </div>
+                <div id="weekly-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4">
+                    <!-- Cards -->
+                </div>
+            </div>
+
+            <!-- View: Users -->
+            <div id="view-users" class="hidden p-6 max-w-7xl mx-auto space-y-8 animate-fade">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-900">การจัดการผู้ใช้งาน (User Management)</h1>
+                        <p class="text-gray-500 text-sm">เพิ่ม ลบ แก้ไข และรีเซ็ตรหัสผ่านของผู้ใช้งานระบบ</p>
+                    </div>
+                    <button onclick="app.openUserModal()" class="grad-primary text-white px-6 py-3 rounded-xl font-bold text-sm shadow-lg hover:scale-105 transition-transform flex items-center">
+                        <i class="fa-solid fa-user-plus mr-2"></i> เพิ่มผู้ใช้ใหม่
+                    </button>
+                </div>
+                
+                <div class="card-modern overflow-x-auto">
+                    <table class="w-full text-left min-w-[800px]">
+                        <thead>
+                            <tr class="bg-gray-50 border-b border-gray-100">
+                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase">UserID</th>
+                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase">ชื่อ-สกุล</th>
+                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase text-center">บทบาท (Role)</th>
+                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase">อีเมล</th>
+                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase text-center">จัดการ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-table-body" class="divide-y divide-gray-50"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- View: Settings -->
+            <div id="view-settings" class="hidden p-6 max-w-4xl mx-auto space-y-8 animate-fade">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900">ตั้งค่าระบบและ Branding</h1>
+                    <p class="text-gray-500 text-sm">ปรับแต่งหน้าตาและข้อมูลเบื้องต้นของระบบ</p>
+                </div>
+
+                <div class="card-modern p-8 space-y-8">
+                    <!-- Site Name -->
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">ชื่อองค์กร / ระบบ</label>
+                        <input type="text" id="input-site-name" class="input-modern" placeholder="เช่น สพฉ. หรือ NIEM Training">
+                    </div>
+
+                    <!-- Logo Upload -->
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">โลโก้หน่วยงาน (สพฉ.)</label>
+                        <div class="flex flex-col md:flex-row items-center gap-6 p-6 bg-slate-50 dark:bg-slate-900/50 rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-700">
+                            <div class="w-24 h-24 bg-white dark:bg-slate-800 rounded-2xl shadow-lg flex items-center justify-center overflow-hidden border border-gray-100">
+                                <img id="preview-logo" src="" class="hidden w-full h-full object-contain p-2">
+                                <i id="preview-icon" class="fa-solid fa-image text-4xl text-gray-200"></i>
+                            </div>
+                            <div class="flex-1 space-y-4">
+                                <p class="text-xs text-gray-400">แนะนำไฟล์ PNG หรือ JPG ขนาดไม่เกิน 2MB (ระบบจะอัปโหลดไปยัง Google Drive อัตโนมัติ)</p>
+                                <div class="flex gap-2">
+                                    <input type="file" id="logo-file-input" accept="image/*" class="hidden" onchange="app.previewLogo(event)">
+                                    <button onclick="document.getElementById('logo-file-input').click()" class="px-6 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-bold hover:bg-gray-50 transition">เลือกไฟล์</button>
+                                    <button onclick="app.uploadLogo()" class="px-6 py-2.5 grad-primary text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-900/20">อัปโหลดและบันทึก</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pt-6 border-t border-gray-100 flex justify-end">
+                        <button onclick="app.saveGeneralSettings()" class="px-8 py-3 bg-blue-900 text-white rounded-xl font-bold text-sm shadow-xl shadow-blue-900/10 hover:scale-105 transition-all">บันทึกการตั้งค่า</button>
+                    </div>
+                </div>
+
+                <!-- Security Settings -->
+                <div class="card-modern p-8 space-y-6">
+                    <div class="flex items-center space-x-3 mb-2">
+                        <div class="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
+                            <i class="fa-solid fa-shield-halved text-xl"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-gray-800">ความปลอดภัย (Security)</h3>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Admin PIN (สำหรับเข้าสู่ระบบ)</label>
+                        <div class="flex gap-4">
+                            <input type="password" id="input-admin-pin" class="input-modern max-w-[200px]" maxlength="5" placeholder="ตัวเลข 5 หลัก">
+                            <button onclick="app.updateAdminPin()" class="px-6 py-2.5 bg-red-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-red-600/20">เปลี่ยน PIN</button>
+                        </div>
+                        <p class="text-[10px] text-gray-400 mt-2 italic">* PIN ปัจจุบันคือสิ่งที่ใช้ล็อกอินเข้าระบบ Admin</p>
+                    </div>
+                </div>
+
+                <!-- Permissions Settings -->
+                <div class="card-modern p-8 space-y-6">
+                    <div class="flex items-center space-x-3 mb-2">
+                        <div class="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                            <i class="fa-solid fa-user-lock text-xl"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-gray-800">กำหนดสิทธิ์เข้าถึง (Permissions)</h3>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="border-b border-gray-100">
+                                    <th class="py-4 text-xs font-bold text-gray-400 uppercase">บทบาท (Role)</th>
+                                    <th class="py-4 text-center text-[10px] font-bold text-gray-400 uppercase">Dashboard</th>
+                                    <th class="py-4 text-center text-[10px] font-bold text-gray-400 uppercase">Annual</th>
+                                    <th class="py-4 text-center text-[10px] font-bold text-gray-400 uppercase">Monthly</th>
+                                    <th class="py-4 text-center text-[10px] font-bold text-gray-400 uppercase">Weekly</th>
+                                    <th class="py-4 text-center text-[10px] font-bold text-gray-400 uppercase">Users</th>
+                                    <th class="py-4 text-center text-[10px] font-bold text-gray-400 uppercase">Settings</th>
+                                </tr>
+                            </thead>
+                            <tbody id="permissions-table-body" class="divide-y divide-gray-50"></tbody>
+                        </table>
+                    </div>
+                    <div class="pt-4 flex justify-end">
+                        <button onclick="app.savePermissions()" class="px-8 py-3 bg-purple-600 text-white rounded-xl font-bold text-sm shadow-xl shadow-purple-600/10 hover:scale-105 transition-all">บันทึกสิทธิ์การเข้าถึง</button>
+                    </div>
+                </div>
+
+                <!-- Master Data Settings -->
+                <div class="card-modern p-8 space-y-8">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">
+                            <i class="fa-solid fa-layer-group text-xl"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-gray-800">ข้อมูลหลัก (Master Data)</h3>
+                            <p class="text-xs text-gray-400">จัดการรายการใน Dropdown ของแบบฟอร์มโครงการ</p>
+                        </div>
+                    </div>
+
+                    <!-- Categories -->
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">หมวดหมู่หลักสูตรทางการแพทย์ (Category)</label>
+                        <div id="master-category-list" class="space-y-2 mb-3"></div>
+                        <div class="flex gap-2">
+                            <input type="text" id="input-new-category-label" class="input-modern flex-1" placeholder="ชื่อหมวดหมู่ เช่น Pediatric Emergency">
+                            <input type="text" id="input-new-category-value" class="input-modern w-36" placeholder="value เช่น peds">
+                            <button onclick="app.addMasterItem('category')" class="px-5 py-2.5 bg-teal-600 text-white rounded-xl text-sm font-bold shrink-0"><i class="fa-solid fa-plus mr-1"></i>เพิ่ม</button>
+                        </div>
+                    </div>
+
+                    <!-- Audience -->
+                    <div class="pt-6 border-t border-gray-100">
+                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">กลุ่มเป้าหมาย (Target Audience)</label>
+                        <div id="master-audience-list" class="space-y-2 mb-3"></div>
+                        <div class="flex gap-2">
+                            <input type="text" id="input-new-audience-label" class="input-modern flex-1" placeholder="ชื่อกลุ่มเป้าหมาย เช่น เจ้าหน้าที่กู้ชีพ">
+                            <input type="text" id="input-new-audience-value" class="input-modern w-36" placeholder="value เช่น rescuer">
+                            <button onclick="app.addMasterItem('audience')" class="px-5 py-2.5 bg-teal-600 text-white rounded-xl text-sm font-bold shrink-0"><i class="fa-solid fa-plus mr-1"></i>เพิ่ม</button>
+                        </div>
+                    </div>
+
+                    <!-- Assessment -->
+                    <div class="pt-6 border-t border-gray-100">
+                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">วิธีการประเมินความรู้/ทักษะ (Assessment)</label>
+                        <div id="master-assessment-list" class="space-y-2 mb-3"></div>
+                        <div class="flex gap-2">
+                            <input type="text" id="input-new-assessment-label" class="input-modern flex-1" placeholder="ชื่อวิธีประเมิน เช่น สอบสัมภาษณ์">
+                            <input type="text" id="input-new-assessment-value" class="input-modern w-36" placeholder="value เช่น interview">
+                            <button onclick="app.addMasterItem('assessment')" class="px-5 py-2.5 bg-teal-600 text-white rounded-xl text-sm font-bold shrink-0"><i class="fa-solid fa-plus mr-1"></i>เพิ่ม</button>
+                        </div>
+                    </div>
+
+                    <div class="pt-4 flex justify-end border-t border-gray-100">
+                        <button onclick="app.saveMasterData()" class="px-8 py-3 bg-teal-600 text-white rounded-xl font-bold text-sm shadow-xl hover:scale-105 transition-all">บันทึก Master Data</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View: Project Detail (Panel Style) -->
+            <div id="view-project-detail" class="hidden p-6 max-w-5xl mx-auto animate-fade">
+                <div class="mb-6">
+                    <button onclick="app.showDashboard()" class="text-blue-600 hover:text-blue-800 font-bold text-sm flex items-center group">
+                        <i class="fa-solid fa-arrow-left mr-2 group-hover:-translate-x-1 transition-transform"></i> กลับหน้ารวม
+                    </button>
+                </div>
+
+                <div class="card-modern overflow-hidden mb-8">
+                    <div class="p-8 bg-gradient-to-r from-blue-900 to-indigo-900 text-white relative">
+                        <div class="relative z-10">
+                            <div class="flex items-center space-x-2 mb-3">
+                                <span class="bg-blue-500/30 text-blue-200 px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider" id="detail-project-id"></span>
+                                <span class="bg-white/10 text-white/80 px-3 py-1 rounded-lg text-[10px] font-bold" id="detail-project-year"></span>
+                            </div>
+                            <h2 class="text-3xl font-bold mb-4" id="detail-project-name"></h2>
+                            <div id="detail-project-status" class="status-badge bg-white text-blue-900"></div>
+                        </div>
+                        <!-- Decoration -->
+                        <div class="absolute right-[-10%] top-[-20%] w-64 h-64 bg-white/10 rounded-full blur-3xl"></div>
+                    </div>
+
+                    <div class="border-b border-gray-100 overflow-x-auto bg-white">
+                        <nav class="flex px-4" id="project-tabs">
+                            <button onclick="app.switchTab('info')" class="tab-btn py-5 px-6 font-bold text-sm tab-active" data-target="tab-info">ข้อมูลทั่วไป</button>
+                            <button onclick="app.switchTab('people')" class="tab-btn py-5 px-6 font-bold text-sm text-gray-400" data-target="tab-people">ผู้เข้าอบรม</button>
+                            <button onclick="app.switchTab('schedule')" class="tab-btn py-5 px-6 font-bold text-sm text-gray-400" data-target="tab-schedule">ตารางเวลา</button>
+                            <button onclick="app.switchTab('budget')" class="tab-btn py-5 px-6 font-bold text-sm text-gray-400" data-target="tab-budget">งบประมาณ</button>
+                            <button onclick="app.switchTab('docs')" class="tab-btn py-5 px-6 font-bold text-sm text-gray-400" data-target="tab-docs">เอกสาร</button>
+                        </nav>
+                    </div>
+
+                    <div class="p-8">
+                        <div id="tab-info" class="tab-content animate-fade">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">ชื่อโครงการ</label>
+                                    <input type="text" id="input-proj-name" class="input-modern">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">ปีงบประมาณ</label>
+                                    <input type="text" id="input-proj-year" class="input-modern">
+                                </div>
+                                <div class="md:col-span-2">
+                                    <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">รายละเอียดโครงการ</label>
+                                    <textarea id="input-proj-desc" rows="3" class="input-modern"></textarea>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">หน่วยกิตศึกษาต่อเนื่อง (CME/CEU)</label>
+                                    <div class="flex items-center">
+                                        <input type="number" id="input-proj-cme" class="input-modern w-24 text-center mr-2" placeholder="0">
+                                        <span class="text-sm text-gray-500 font-bold">หน่วยกิต</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">หมวดหมู่หลักสูตรทางการแพทย์</label>
+                                    <select id="input-proj-category" class="input-modern bg-white">
+                                        <option value="basic">Basic Life Support (BLS)</option>
+                                        <option value="advanced">Advanced Life Support (ALS/ACLS)</option>
+                                        <option value="trauma">Trauma & Technical Rescue</option>
+                                        <option value="management">Management & Leadership</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">ความสำคัญ (Priority)</label>
+                                    <select id="input-proj-priority" class="input-modern bg-white">
+                                        <option value="high">🔴 สูง (High)</option>
+                                        <option value="medium">🟡 ปานกลาง (Medium)</option>
+                                        <option value="low">🔵 ต่ำ (Low)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">สถานะสุขภาพโครงการ (Health)</label>
+                                    <select id="input-proj-health" class="input-modern bg-white">
+                                        <option value="on-track">🟢 ปกติ (On Track)</option>
+                                        <option value="at-risk">🟡 มีความเสี่ยง (At Risk)</option>
+                                        <option value="off-track">🔴 ล่าช้า/มีปัญหา (Off Track)</option>
+                                    </select>
+                                </div>
+                                <div class="md:col-span-2">
+                                    <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 flex justify-between">
+                                        <span>ความคืบหน้า (Progress)</span>
+                                        <span id="progress-val-display" class="text-blue-600">0%</span>
+                                    </label>
+                                    <input type="range" id="input-proj-progress" min="0" max="100" value="0" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600" oninput="document.getElementById('progress-val-display').innerText = this.value + '%'">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="tab-people" class="tab-content hidden animate-fade">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div class="p-6 bg-indigo-50 dark:bg-indigo-900/20 rounded-[24px] border border-indigo-100 dark:border-indigo-800">
+                                    <label class="block text-xs font-bold text-indigo-500 uppercase tracking-widest mb-2">เป้าหมายจำนวนผู้เข้าอบรม</label>
+                                    <div class="flex items-center space-x-3">
+                                        <i class="fa-solid fa-users text-2xl text-indigo-400"></i>
+                                        <input type="number" id="input-proj-people" class="bg-transparent border-none p-0 text-3xl font-black text-indigo-700 dark:text-indigo-100 w-full outline-none placeholder-indigo-300" placeholder="0" min="0">
+                                    </div>
+                                </div>
+                                <div class="space-y-6">
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">กลุ่มเป้าหมาย (Target Audience)</label>
+                                        <select id="input-proj-audience" class="input-modern bg-white">
+                                            <option value="doctor">แพทย์ (Doctor)</option>
+                                            <option value="nurse">พยาบาลวิชาชีพ (RN / EN)</option>
+                                            <option value="paramedic">นักปฏิบัติการฉุกเฉินการแพทย์ (Paramedic)</option>
+                                            <option value="emt">พนักงานฉุกเฉินการแพทย์ (AEMT / EMT)</option>
+                                            <option value="all">บุคลากรทางการแพทย์ทุกระดับ</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">วิธีการประเมินความรู้/ทักษะ (Assessment)</label>
+                                        <select id="input-proj-assessment" class="input-modern bg-white">
+                                            <option value="mcq">ข้อสอบปรนัย (MCQ) แบบ Pre/Post-test</option>
+                                            <option value="osce">สอบปฏิบัติทักษะ (OSCE)</option>
+                                            <option value="scenario">ประเมินจากสถานการณ์จำลอง (Simulation)</option>
+                                            <option value="attendance">พิจารณาจากเวลาเข้าร่วม (Attendance Only)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div id="tab-schedule" class="tab-content hidden animate-fade space-y-6">
+                            <!-- Fiscal Year Calendar -->
+                            <div class="bg-white dark:bg-slate-800 p-6 rounded-[24px] border border-gray-100 dark:border-gray-700 shadow-sm">
+                                <div class="flex items-center justify-between mb-5">
+                                    <div>
+                                        <h4 class="font-bold text-gray-800">ปฏิทินปีงบประมาณ</h4>
+                                        <p class="text-xs text-gray-400 mt-0.5">คลิกเดือนเริ่มต้น แล้วคลิกเดือนสิ้นสุด (ต.ค. = เดือน 1)</p>
+                                    </div>
+                                    <div class="flex items-center gap-4 text-xs">
+                                        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-blue-600 inline-block"></span>ช่วงเวลาโครงการ</span>
+                                        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span>ไตรมาส 1 (ต.ค.-ธ.ค.)</span>
+                                    </div>
+                                </div>
+                                <!-- Quarter Labels -->
+                                <div class="grid grid-cols-4 gap-2 mb-2">
+                                    <div class="text-center text-[10px] font-bold text-emerald-600 bg-emerald-50 rounded-xl py-1.5">Q1 (ต.ค.-ธ.ค.)</div>
+                                    <div class="text-center text-[10px] font-bold text-blue-600 bg-blue-50 rounded-xl py-1.5">Q2 (ม.ค.-มี.ค.)</div>
+                                    <div class="text-center text-[10px] font-bold text-purple-600 bg-purple-50 rounded-xl py-1.5">Q3 (เม.ย.-มิ.ย.)</div>
+                                    <div class="text-center text-[10px] font-bold text-orange-600 bg-orange-50 rounded-xl py-1.5">Q4 (ก.ค.-ก.ย.)</div>
+                                </div>
+                                <!-- Month Grid -->
+                                <div class="grid grid-cols-4 gap-2" id="fiscal-cal-grid"></div>
+                                <!-- Summary -->
+                                <div class="mt-4 flex items-center gap-6 text-sm text-gray-500">
+                                    <span>เดือนเริ่ม: <strong id="cal-start-label" class="text-blue-700">-</strong></span>
+                                    <span>เดือนสิ้นสุด: <strong id="cal-end-label" class="text-blue-700">-</strong></span>
+                                    <span>รวม: <strong id="cal-duration-label" class="text-blue-700">-</strong> เดือน</span>
+                                </div>
+                                <!-- Hidden inputs for save compatibility -->
+                                <input type="hidden" id="input-proj-start">
+                                <input type="hidden" id="input-proj-end">
+                            </div>
+
+                            <!-- Schedules Detail -->
+                            <div class="bg-white dark:bg-slate-800 p-6 rounded-[24px] border border-gray-100 shadow-sm">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h4 class="font-bold text-gray-800">กำหนดการอบรม (Sessions)</h4>
+                                    <button onclick="app.addScheduleSession()" class="px-4 py-2 bg-blue-900 text-white text-xs font-bold rounded-xl hover:scale-105 transition"><i class="fa-solid fa-plus mr-1"></i>เพิ่มรอบ</button>
+                                </div>
+                                <div id="schedule-sessions-container" class="space-y-3"></div>
+                            </div>
+                        </div>
+
+                        <div id="tab-budget" class="tab-content hidden animate-fade space-y-6">
+                            <!-- Summary Cards -->
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div class="p-5 bg-blue-50 rounded-[20px] border border-blue-100">
+                                    <label class="block text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-1">งบประมาณที่ได้รับ</label>
+                                    <div class="flex items-center gap-2">
+                                        <input type="number" id="input-proj-budget" class="bg-transparent border-none p-0 text-xl font-black text-blue-900 w-full outline-none" placeholder="0">
+                                        <span class="text-blue-500 text-xs font-bold shrink-0">บาท</span>
+                                    </div>
+                                </div>
+                                <div class="p-5 bg-rose-50 rounded-[20px] border border-rose-100">
+                                    <label class="block text-[10px] font-bold text-rose-400 uppercase tracking-widest mb-1">รวมรายจ่าย</label>
+                                    <p id="budget-total-expense" class="text-xl font-black text-rose-700">0</p>
+                                    <span class="text-rose-300 text-xs">บาท</span>
+                                </div>
+                                <div class="p-5 bg-emerald-50 rounded-[20px] border border-emerald-100">
+                                    <label class="block text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-1">งบคงเหลือ</label>
+                                    <p id="budget-balance" class="text-xl font-black text-emerald-700">0</p>
+                                    <span class="text-emerald-300 text-xs">บาท</span>
+                                </div>
+                            </div>
+
+                            <!-- Progress Bar -->
+                            <div class="bg-white p-4 rounded-[20px] border border-gray-100">
+                                <div class="flex justify-between text-xs font-bold text-gray-500 mb-2">
+                                    <span>การใช้งบประมาณ</span>
+                                    <span id="budget-pct-label">0%</span>
+                                </div>
+                                <div class="w-full bg-gray-100 rounded-full h-3">
+                                    <div id="budget-progress-bar" class="h-3 rounded-full transition-all duration-500 bg-blue-500" style="width:0%"></div>
+                                </div>
+                            </div>
+
+                            <!-- Ledger Table -->
+                            <div class="bg-white rounded-[20px] border border-gray-100 overflow-hidden">
+                                <div class="p-5 border-b border-gray-100 flex items-center justify-between">
+                                    <h4 class="font-bold text-gray-800">รายการบัญชีงบประมาณ</h4>
+                                    <button onclick="app.addBudgetEntry()" class="px-4 py-2 bg-blue-900 text-white text-xs font-bold rounded-xl hover:scale-105 transition"><i class="fa-solid fa-plus mr-1"></i>เพิ่มรายการ</button>
+                                </div>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-left min-w-[600px]">
+                                        <thead>
+                                            <tr class="bg-gray-50">
+                                                <th class="px-4 py-3 text-xs font-bold text-gray-400 uppercase">วันที่</th>
+                                                <th class="px-4 py-3 text-xs font-bold text-gray-400 uppercase">รายการ</th>
+                                                <th class="px-4 py-3 text-xs font-bold text-gray-400 uppercase">หมวด</th>
+                                                <th class="px-4 py-3 text-xs font-bold text-gray-400 uppercase text-right">จำนวนเงิน (บาท)</th>
+                                                <th class="px-4 py-3 text-xs font-bold text-gray-400 uppercase text-center">ลบ</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="budget-ledger-body" class="divide-y divide-gray-50"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="tab-docs" class="tab-content hidden animate-fade">
+                            <div class="bg-slate-50 p-6 rounded-[24px] border border-slate-100 mb-6">
+                                <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">อัปโหลดเอกสารใหม่</label>
+                                <div class="flex flex-col sm:flex-row gap-4">
+                                    <input type="file" id="file-upload" class="flex-1 bg-white border border-gray-200 p-2 rounded-xl text-sm">
+                                    <button onclick="app.uploadDocument()" class="bg-blue-900 text-white px-8 py-3 rounded-xl font-bold text-sm shadow-lg shadow-blue-900/10">Upload</button>
+                                </div>
+                                <div id="upload-status" class="mt-4 text-xs"></div>
+                            </div>
+                            <div class="table-container bg-white border border-gray-100 rounded-2xl">
+                                <table class="w-full text-left">
+                                    <thead>
+                                        <tr>
+                                            <th class="px-6 py-4">ไฟล์เอกสาร</th>
+                                            <th class="px-6 py-4">วันที่อัปโหลด</th>
+                                            <th class="px-6 py-4 text-center">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="docs-table-body" class="divide-y divide-gray-50">
+                                        <!-- JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="mt-12 flex justify-end space-x-4">
+                            <button onclick="app.showDashboard()" class="px-8 py-4 text-gray-400 font-bold text-sm hover:text-gray-600 transition">ยกเลิก</button>
+                            <button onclick="app.saveProjectInfo()" class="px-10 py-4 bg-blue-900 text-white rounded-2xl font-bold text-sm shadow-xl shadow-blue-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all">บันทึกโครงการ</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mobile Bottom Nav -->
+        <nav class="mobile-nav fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-gray-100 px-2 flex md:hidden items-center justify-around z-40 hidden shadow-[0_-4px_10px_rgba(0,0,0,0.02)]">
+            <button onclick="app.showDashboard()" id="m-nav-dashboard" class="flex flex-col items-center justify-center space-y-1 text-blue-900 px-4">
+                <i class="fa-solid fa-grid-2 text-lg"></i>
+                <span class="text-[10px] font-bold">Home</span>
+            </button>
+            <button onclick="app.showMonthlyPlan()" id="m-nav-monthly" class="flex flex-col items-center justify-center space-y-1 text-gray-400 px-4">
+                <i class="fa-solid fa-calendar-check text-lg"></i>
+                <span class="text-[10px] font-bold">Monthly</span>
+            </button>
+            <button onclick="app.showWeeklyPlan()" id="m-nav-weekly" class="flex flex-col items-center justify-center space-y-1 text-gray-400 px-4">
+                <i class="fa-solid fa-calendar-week text-lg"></i>
+                <span class="text-[10px] font-bold">Weekly</span>
+            </button>
+            <button onclick="app.logout()" class="flex flex-col items-center justify-center space-y-1 text-red-300 px-4">
+                <i class="fa-solid fa-power-off text-lg"></i>
+                <span class="text-[10px] font-bold">Exit</span>
+            </button>
+        </nav>
+        <!-- User Modal -->
+        <div id="user-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm animate-fade">
+            <div class="bg-white rounded-[24px] shadow-2xl w-full max-w-md overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                    <h3 id="user-modal-title" class="font-bold text-gray-800 text-lg">เพิ่มผู้ใช้ใหม่</h3>
+                    <button onclick="document.getElementById('user-modal').classList.add('hidden')" class="text-gray-400 hover:text-red-500 transition"><i class="fa-solid fa-times text-xl"></i></button>
+                </div>
+                <div class="p-6 space-y-4">
+                    <input type="hidden" id="modal-user-id">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 mb-1">ชื่อ-สกุล</label>
+                        <input type="text" id="modal-user-name" class="input-modern" placeholder="ชื่อ นามสกุล">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 mb-1">อีเมล</label>
+                        <input type="email" id="modal-user-email" class="input-modern" placeholder="email@example.com">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 mb-1">สิทธิ์การใช้งาน (Role)</label>
+                        <select id="modal-user-role" class="input-modern bg-white">
+                            <option value="Admin">ผู้ดูแลระบบ (Admin)</option>
+                            <option value="Staff">เจ้าหน้าที่ (Staff)</option>
+                            <option value="Instructor">ผู้สอน (Instructor)</option>
+                            <option value="Trainee">ผู้เข้าอบรม (Trainee)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 mb-1">PIN 5 หลัก (ใช้ล็อกอิน)</label>
+                        <input type="password" id="modal-user-pin" class="input-modern" placeholder="เช่น 12345" maxlength="5">
+                    </div>
+                </div>
+                <div class="p-6 pt-0 flex justify-end space-x-3">
+                    <button onclick="document.getElementById('user-modal').classList.add('hidden')" class="px-5 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-700">ยกเลิก</button>
+                    <button onclick="app.saveUser()" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition">บันทึกข้อมูล</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script type="module" src="/src/main.js"></script>
+</body>
+</html>
