@@ -11,7 +11,7 @@ import { showDashboard, showAnnualPlan, showMonthlyPlan, showWeeklyPlan,
          createNewProject, saveProjectInfo, openProject, switchTab, uploadDocument, renderWeeklyPlan } from './modules/projects.js';
 import { showUsers, showUserModal, closeUserModal, saveUser } from './modules/users.js';
 import { showSettings, saveSettings, savePermissions, simulateRole,
-         toggleDarkMode, loadDarkMode, loadSettings, previewLogo, addMasterItem } from './modules/settings.js';
+         toggleDarkMode, loadDarkMode, loadSettings, previewLogo, uploadLogo, addMasterItem } from './modules/settings.js';
 import { addBudgetEntry } from './modules/budget.js';
 import { addScheduleSession } from './modules/schedule.js';
 import { renderMasterDataLists } from './modules/masterData.js';
@@ -38,6 +38,7 @@ window.app = {
   uploadDocument,
 
   // Users
+  openUserModal: () => showUserModal(null),
   showUserModal: () => showUserModal(null),
   closeUserModal,
   saveUser,
@@ -48,6 +49,9 @@ window.app = {
   simulateRole,
   toggleDarkMode,
   previewLogo,
+  uploadLogo,
+  saveGeneralSettings: saveSettings,
+  updateAdminPin: saveSettings,
   addMasterItem,
 
   // Budget

@@ -39,22 +39,42 @@ export async function saveSettings() {
   Swal.fire({ icon: 'success', title: 'บันทึก Settings สำเร็จ', timer: 1500, showConfirmButton: false });
 }
 
-async function uploadLogo(file) {
+export async function uploadLogo(file) {
+  const selectedFile = file || document.getElementById('logo-file-input')?.files?.[0];
+  if (!selectedFile) {
+    Swal.fire('ยังไม่ได้เลือกไฟล์', 'กรุณาเลือกไฟล์โลโก้ก่อนอัปโหลด', 'warning');
+    return;
+  }
+
+  if (!selectedFile.type?.startsWith('image/')) {
+    Swal.fire('ไฟล์ไม่ถูกต้อง', 'กรุณาเลือกไฟล์รูปภาพเท่านั้น', 'warning');
+    return;
+  }
+
+  if (selectedFile.size > 2 * 1024 * 1024) {
+    Swal.fire('ไฟล์ใหญ่เกินไป', 'กรุณาเลือกไฟล์ขนาดไม่เกิน 2MB', 'warning');
+    return;
+  }
+
   const reader = new FileReader();
   return new Promise(resolve => {
     reader.onload = async e => {
       const data = e.target.result.split(',')[1];
       try {
-        const url = await gas.uploadFile(data, file.name);
+        Swal.fire({ title: 'กำลังอัปโหลดโลโก้...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+        const url = await gas.uploadFile(data, selectedFile.name);
         await gas.saveSystemSetting('logoUrl', url);
         _applyLogo(url);
+        Swal.fire({ icon: 'success', title: 'อัปโหลดโลโก้สำเร็จ', timer: 1500, showConfirmButton: false });
       } catch (err) {
         // Dev mode — use local data URL
+        await gas.saveSystemSetting('logoUrl', e.target.result);
         _applyLogo(e.target.result);
+        Swal.fire({ icon: 'success', title: 'บันทึกโลโก้สำเร็จ', timer: 1500, showConfirmButton: false });
       }
       resolve();
     };
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(selectedFile);
   });
 }
 

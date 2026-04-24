@@ -31,11 +31,11 @@ export async function loadUsers() {
 }
 
 export function renderUserTable() {
-  const tbody = document.getElementById('user-table-body');
+  const tbody = document.getElementById('users-table-body');
   if (!tbody) return;
   tbody.innerHTML = '';
   if (!state.users.length) {
-    tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-gray-300 font-bold">ไม่มีผู้ใช้งาน</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-gray-300 font-bold">ไม่มีผู้ใช้งาน</td></tr>`;
     return;
   }
   state.users.forEach(u => {
@@ -50,8 +50,7 @@ export function renderUserTable() {
         <div><p class="font-bold text-gray-800 text-sm">${escapeHTML(u.name)}</p>
           <p class="text-xs text-gray-400">${escapeHTML(u.email)}</p></div></div></td>
       <td class="px-6 py-4"><span class="px-2 py-1 rounded-lg text-xs font-bold ${roleColor}">${escapeHTML(u.role)}</span></td>
-      <td class="px-6 py-4 text-xs text-gray-500">${escapeHTML(u.phone||'-')}</td>
-      <td class="px-6 py-4 text-xs font-mono text-gray-300">•••••</td>
+      <td class="px-6 py-4 text-xs text-gray-500">${escapeHTML(u.email || '-')}</td>
       <td class="px-6 py-4">
         <div class="flex items-center justify-end space-x-2">
           <button onclick="window._editUser('${u.id}')" class="p-2 text-blue-500 hover:bg-blue-50 rounded-xl transition"><i class="fa-solid fa-pen-to-square text-sm"></i></button>
@@ -70,12 +69,11 @@ export function showUserModal(userData) {
   if (!modal) return;
   modal.classList.remove('hidden');
   document.getElementById('user-modal-title').innerText = userData?.id ? 'แก้ไขผู้ใช้' : 'เพิ่มผู้ใช้ใหม่';
-  document.getElementById('user-modal-id').value    = userData?.id    || `U-${String(Date.now()).slice(-4)}`;
-  document.getElementById('user-modal-name').value  = userData?.name  || '';
-  document.getElementById('user-modal-email').value = userData?.email || '';
-  document.getElementById('user-modal-phone').value = userData?.phone || '';
-  document.getElementById('user-modal-pin').value   = userData?.pin   || '';
-  const roleSelect = document.getElementById('user-modal-role');
+  document.getElementById('modal-user-id').value    = userData?.id    || `U-${String(Date.now()).slice(-4)}`;
+  document.getElementById('modal-user-name').value  = userData?.name  || '';
+  document.getElementById('modal-user-email').value = userData?.email || '';
+  document.getElementById('modal-user-pin').value   = userData?.pin   || '';
+  const roleSelect = document.getElementById('modal-user-role');
   if (roleSelect) roleSelect.value = userData?.role || 'Staff';
 }
 
@@ -85,12 +83,12 @@ export function closeUserModal() {
 
 export async function saveUser() {
   const userData = {
-    id:    document.getElementById('user-modal-id')?.value.trim(),
-    name:  document.getElementById('user-modal-name')?.value.trim(),
-    role:  document.getElementById('user-modal-role')?.value,
-    email: document.getElementById('user-modal-email')?.value.trim(),
-    phone: document.getElementById('user-modal-phone')?.value.trim() || '-',
-    pin:   document.getElementById('user-modal-pin')?.value.trim()
+    id:    document.getElementById('modal-user-id')?.value.trim(),
+    name:  document.getElementById('modal-user-name')?.value.trim(),
+    role:  document.getElementById('modal-user-role')?.value,
+    email: document.getElementById('modal-user-email')?.value.trim(),
+    phone: '-',
+    pin:   document.getElementById('modal-user-pin')?.value.trim()
   };
   if (!userData.name || !userData.pin) { Swal.fire('ข้อมูลไม่ครบ', 'กรุณากรอกชื่อและ PIN', 'warning'); return; }
   try {
