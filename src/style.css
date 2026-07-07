@@ -98,6 +98,8 @@ body.dark {
 
 /* ── Card Modern ── */
 .card-modern {
+  position: relative;
+  overflow: hidden;
   background: var(--card-bg);
   border-radius: 8px;
   border: 1px solid var(--border-color);
@@ -568,12 +570,6 @@ tbody tr:hover {
 /* ══════════════════════════════════════
    LOGIN PAGE
 ══════════════════════════════════════ */
-.login-stage {
-  background:
-    radial-gradient(circle at 20% 18%, rgba(37, 99, 235, .10), transparent 30%),
-    radial-gradient(circle at 82% 76%, rgba(15, 159, 154, .12), transparent 28%),
-    linear-gradient(135deg, #f8fbff 0%, #eef5ff 52%, #e8f7f5 100%);
-}
 .login-shell {
   display: grid;
   grid-template-columns: 1.1fr 1fr;
@@ -586,10 +582,7 @@ tbody tr:hover {
   -webkit-backdrop-filter: blur(14px);
 }
 .login-brand {
-  background:
-    linear-gradient(145deg, rgba(11,37,93,.98) 0%, rgba(23,59,143,.98) 58%, rgba(15,118,110,.98) 100%);
-  color: #e0e7ff;
-  position: relative;
+  position: relative; /* สี/พื้นหลังจริงกำหนดที่ LOGIN FINAL PASS ท้ายไฟล์ */
 }
 .login-brand::before, .login-brand::after { display: none; }
 .login-auth { background: rgba(255,255,255,.9); }
@@ -1241,12 +1234,6 @@ button:disabled,
   border-color: #2563eb !important;
 }
 
-.dark .login-stage {
-  background:
-    radial-gradient(circle at 18% 20%, rgba(37, 99, 235, .18), transparent 30%),
-    radial-gradient(circle at 82% 76%, rgba(20, 184, 166, .12), transparent 28%),
-    linear-gradient(135deg, #0b1220 0%, #101b30 60%, #0d1f2c 100%);
-}
 
 @media (max-width: 767px) {
   .kanban-board { grid-template-columns: 1fr; }
@@ -1318,368 +1305,10 @@ button:disabled,
 .dark .weekly-date-badge span { color: #93c5fd; }
 .dark .weekly-days-badge { background: var(--surface-soft); color: #93c5fd; }
 .dark .pin-box { background: var(--surface-soft); border-color: var(--border-color); color: #93c5fd; }
-.dark .login-auth { background: rgba(18,28,46,.92); }
 .dark .login-shell { background: rgba(18,28,46,.8); border-color: var(--border-color); }
 .dark .login-stage { background: linear-gradient(135deg, #0b1220 0%, #101b30 60%, #0d1f2c 100%); }
 .dark .tab-btn.tab-active { background: var(--card-bg); }
 .dark .tab-btn:hover { background: var(--surface-soft); }
-
-/* ============================================================
-   Reference theme: dark glass / violet crypto-style cards
-   ============================================================ */
-
-:root {
-  --primary: #8f7bff;
-  --primary-dark: #161323;
-  --primary-light: #c8bdff;
-  --accent: #68f5c8;
-  --accent-soft: rgba(104, 245, 200, .16);
-  --warning: #ffb86b;
-  --success: #68f5c8;
-  --danger: #ff6f91;
-  --bg-main: #100f1b;
-  --card-bg: rgba(31, 29, 44, .72);
-  --surface-soft: rgba(255, 255, 255, .07);
-  --text-main: #f8f7ff;
-  --text-muted: #b7b0ca;
-  --border-color: rgba(255, 255, 255, .13);
-  --glass-bg: rgba(31, 29, 44, .66);
-  --shadow-soft: 0 18px 46px rgba(3, 2, 12, .34), inset 0 1px 0 rgba(255, 255, 255, .06);
-  --shadow-lift: 0 24px 64px rgba(3, 2, 12, .48), 0 0 0 1px rgba(200, 189, 255, .14);
-  --ring: 0 0 0 3px rgba(143, 123, 255, .28);
-}
-
-body {
-  background:
-    radial-gradient(circle at 10% 10%, rgba(111, 92, 255, .42), transparent 32%),
-    radial-gradient(circle at 82% 8%, rgba(255, 141, 172, .34), transparent 30%),
-    radial-gradient(circle at 74% 70%, rgba(104, 245, 200, .18), transparent 34%),
-    linear-gradient(135deg, #11101c 0%, #1c172d 45%, #0d0c14 100%);
-  color: var(--text-main);
-}
-
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-  background:
-    linear-gradient(115deg, rgba(255,255,255,.045), transparent 22%, rgba(255,255,255,.025) 58%, transparent),
-    radial-gradient(circle at 50% 50%, transparent 0, rgba(0,0,0,.28) 100%);
-}
-
-.card-modern,
-.mobile-list-card,
-.kanban-card,
-.kanban-column,
-.weekly-session-card,
-.login-shell,
-.login-auth,
-.swal2-popup {
-  background:
-    linear-gradient(135deg, rgba(255,255,255,.105), rgba(255,255,255,.035) 48%, rgba(255,255,255,.08)),
-    rgba(24, 22, 36, .72) !important;
-  border-color: var(--border-color) !important;
-  box-shadow: var(--shadow-soft) !important;
-  backdrop-filter: blur(22px) saturate(150%);
-  -webkit-backdrop-filter: blur(22px) saturate(150%);
-}
-
-.card-modern {
-  position: relative;
-  overflow: hidden;
-}
-
-.card-modern::before,
-.kanban-card::before,
-.mobile-list-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at 18% 0%, rgba(143, 123, 255, .16), transparent 34%),
-    radial-gradient(circle at 100% 18%, rgba(255, 141, 172, .14), transparent 30%);
-  opacity: .9;
-}
-
-.card-modern > *,
-.kanban-card > *,
-.mobile-list-card > * {
-  position: relative;
-  z-index: 1;
-}
-
-.card-modern:hover,
-.mobile-list-card:hover,
-.kanban-card:hover {
-  border-color: rgba(200, 189, 255, .36) !important;
-  box-shadow: var(--shadow-lift) !important;
-}
-
-.sidebar {
-  background:
-    radial-gradient(circle at 18% 8%, rgba(143, 123, 255, .24), transparent 32%),
-    linear-gradient(180deg, rgba(25, 22, 40, .98) 0%, rgba(17, 15, 28, .98) 100%) !important;
-  border-right-color: rgba(255,255,255,.13);
-  box-shadow: 18px 0 60px rgba(4, 3, 12, .34);
-}
-
-.sidebar-item.active {
-  background:
-    linear-gradient(135deg, rgba(143, 123, 255, .30), rgba(104, 245, 200, .14)) !important;
-  color: #ffffff;
-  border: 1px solid rgba(255,255,255,.14);
-}
-
-.sidebar-item.active::before {
-  background: var(--accent);
-  box-shadow: 0 0 18px rgba(104, 245, 200, .72);
-}
-
-.sidebar-item:hover:not(.active) {
-  background: rgba(255,255,255,.075);
-}
-
-#sidebar-user-card > div,
-#logo-container,
-.login-kpi {
-  background: rgba(255,255,255,.08) !important;
-  border-color: rgba(255,255,255,.14) !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.08) !important;
-}
-
-#top-header,
-.mobile-nav {
-  background: rgba(18, 16, 29, .78) !important;
-  border-color: rgba(255,255,255,.12) !important;
-  box-shadow: 0 14px 44px rgba(3, 2, 12, .30) !important;
-  backdrop-filter: blur(20px) saturate(150%);
-  -webkit-backdrop-filter: blur(20px) saturate(150%);
-}
-
-#view-dashboard,
-#view-annual,
-#view-monthly,
-#view-weekly,
-#view-users,
-#view-settings,
-#view-project-detail {
-  background:
-    radial-gradient(circle at 92% 0%, rgba(255, 141, 172, .13), transparent 28%),
-    radial-gradient(circle at 0% 18%, rgba(143, 123, 255, .12), transparent 34%),
-    transparent;
-}
-
-.login-stage {
-  background:
-    radial-gradient(circle at 18% 16%, rgba(143, 123, 255, .46), transparent 32%),
-    radial-gradient(circle at 82% 22%, rgba(255, 141, 172, .38), transparent 30%),
-    radial-gradient(circle at 78% 82%, rgba(104, 245, 200, .20), transparent 36%),
-    linear-gradient(135deg, #11101c 0%, #1c172d 48%, #0d0c14 100%);
-}
-
-.login-brand {
-  background:
-    radial-gradient(circle at 74% 34%, rgba(255, 141, 172, .42), transparent 30%),
-    radial-gradient(circle at 28% 26%, rgba(143, 123, 255, .34), transparent 32%),
-    linear-gradient(145deg, rgba(23, 20, 38, .98), rgba(17, 15, 28, .98)) !important;
-}
-
-.login-auth {
-  color: var(--text-main);
-}
-
-.grad-primary,
-.grad-accent,
-.from-violet-500.to-purple-600,
-.from-blue-900.to-indigo-900 {
-  background-image:
-    linear-gradient(135deg, rgba(143, 123, 255, .96), rgba(255, 141, 172, .76) 54%, rgba(104, 245, 200, .72)) !important;
-  color: #ffffff !important;
-}
-
-.grad-success {
-  background-image: linear-gradient(135deg, #34d399, #68f5c8) !important;
-  color: #0d0c14 !important;
-}
-
-.grad-warning {
-  background-image: linear-gradient(135deg, #ffb86b, #ff8dac) !important;
-  color: #161323 !important;
-}
-
-.input-modern,
-#dashboard-search,
-select,
-.swal2-input,
-.swal2-textarea,
-.swal2-select {
-  background: rgba(255,255,255,.07) !important;
-  border: 1px solid rgba(255,255,255,.13) !important;
-  color: var(--text-main) !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.04) !important;
-}
-
-.input-modern::placeholder,
-#dashboard-search::placeholder,
-.swal2-input::placeholder,
-.swal2-textarea::placeholder {
-  color: rgba(248,247,255,.52) !important;
-}
-
-.input-modern:focus,
-#dashboard-search:focus,
-select:focus,
-.swal2-input:focus,
-.swal2-textarea:focus,
-.swal2-select:focus {
-  border-color: rgba(200, 189, 255, .58) !important;
-  box-shadow: var(--ring), inset 0 1px 0 rgba(255,255,255,.08) !important;
-}
-
-th,
-#view-annual-plan table thead th:first-child {
-  background: rgba(255,255,255,.06) !important;
-  color: rgba(248,247,255,.68) !important;
-}
-
-tbody tr:hover,
-tbody tr:focus-within {
-  background: rgba(143, 123, 255, .11) !important;
-}
-
-#view-annual-plan table th:first-child,
-#view-annual-plan table td:first-child {
-  background: rgba(24, 22, 36, .88) !important;
-}
-
-.table-container,
-.scroll-container {
-  border-color: var(--border-color);
-}
-
-.scroll-container::after {
-  background: linear-gradient(to right, transparent, rgba(16,15,27,.88));
-}
-
-.status-badge,
-.weekly-days-badge,
-.kanban-count,
-.card-modern .text-\[10px\].font-black {
-  border: 1px solid rgba(255,255,255,.12);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
-}
-
-.status-draft {
-  background: rgba(255,255,255,.08);
-  color: #d9d4ea;
-  border-color: rgba(255,255,255,.14);
-}
-
-.status-active {
-  background: rgba(104, 245, 200, .15);
-  color: #7df8cf;
-  border-color: rgba(104, 245, 200, .34);
-}
-
-.status-done {
-  background: rgba(143, 123, 255, .18);
-  color: #d8d1ff;
-  border-color: rgba(143, 123, 255, .38);
-}
-
-.pin-box,
-.numpad-btn,
-.weekly-date-badge {
-  background: rgba(255,255,255,.08) !important;
-  border-color: rgba(255,255,255,.16) !important;
-  color: var(--text-main) !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 10px 26px rgba(3, 2, 12, .16) !important;
-}
-
-.pin-box.filled {
-  background: linear-gradient(135deg, #8f7bff, #ff8dac) !important;
-  border-color: rgba(255,255,255,.22) !important;
-}
-
-.pin-box.active-cursor {
-  border-color: rgba(200, 189, 255, .62) !important;
-  box-shadow: var(--ring) !important;
-}
-
-.text-gray-900,
-.text-gray-800,
-.text-gray-700,
-.text-slate-900,
-.text-slate-800,
-.text-blue-900,
-.text-violet-600,
-.text-purple-600 {
-  color: var(--text-main) !important;
-}
-
-.text-gray-600,
-.text-gray-500,
-.text-gray-400,
-.text-slate-600,
-.text-slate-500,
-.text-blue-300 {
-  color: var(--text-muted) !important;
-}
-
-.text-emerald-500,
-.text-emerald-600,
-.text-emerald-700,
-.text-teal-600,
-.text-indigo-500,
-.text-indigo-600 {
-  color: var(--accent) !important;
-}
-
-.bg-white,
-.bg-gray-50,
-.bg-slate-50,
-.bg-blue-50,
-.bg-indigo-50,
-.bg-purple-50,
-.bg-violet-50,
-.bg-emerald-50,
-.bg-teal-50 {
-  background-color: rgba(255,255,255,.07) !important;
-}
-
-.border-gray-100,
-.border-gray-200,
-.border-gray-300,
-.border-indigo-100,
-.border-purple-100,
-.border-violet-100,
-.border-emerald-100,
-.divide-gray-50 > * + * {
-  border-color: rgba(255,255,255,.12) !important;
-}
-
-.shadow-xl,
-.shadow-2xl,
-.shadow-lg,
-.shadow-sm {
-  box-shadow: var(--shadow-soft) !important;
-}
-
-.mobile-nav button.text-blue-900::before {
-  background: linear-gradient(90deg, #8f7bff, #68f5c8);
-  box-shadow: 0 0 16px rgba(104, 245, 200, .58);
-}
-
-::-webkit-scrollbar-thumb {
-  background: rgba(200, 189, 255, .34);
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(200, 189, 255, .52);
-}
 
 /* ============================================================
    Reference theme: Apple-inspired minimalist light UI
@@ -1737,18 +1366,6 @@ body::before {
   -webkit-backdrop-filter: saturate(180%) blur(18px);
 }
 
-.card-modern::before,
-.kanban-card::before,
-.mobile-list-card::before {
-  content: none;
-}
-
-.card-modern > *,
-.kanban-card > *,
-.mobile-list-card > * {
-  position: relative;
-}
-
 .card-modern:hover,
 .mobile-list-card:hover,
 .kanban-card:hover {
@@ -1756,52 +1373,7 @@ body::before {
   box-shadow: var(--shadow-lift) !important;
 }
 
-.sidebar {
-  background: rgba(255,255,255,.86) !important;
-  border-right-color: rgba(0,0,0,.08) !important;
-  box-shadow: 1px 0 0 rgba(0,0,0,.04) !important;
-  color: var(--text-main) !important;
-  backdrop-filter: saturate(180%) blur(18px);
-  -webkit-backdrop-filter: saturate(180%) blur(18px);
-}
-
-.sidebar-item {
-  color: #424245 !important;
-}
-
-.sidebar-item.active {
-  background: rgba(0,122,255,.10) !important;
-  color: var(--primary) !important;
-  border: 1px solid rgba(0,122,255,.12) !important;
-  box-shadow: none !important;
-}
-
-.sidebar-item.active::before {
-  background: var(--primary);
-  box-shadow: none;
-}
-
-.sidebar-item:hover:not(.active) {
-  background: rgba(0,0,0,.04) !important;
-  transform: none;
-}
-
-#sidebar-brand-text h1,
-#sidebar-user-name,
-.sidebar .text-white {
-  color: var(--text-main) !important;
-}
-
-#sidebar-brand-text p,
-#role-simulator,
-.sidebar .text-blue-200,
-.sidebar .text-blue-300 {
-  color: var(--text-muted) !important;
-}
-
-#sidebar-user-card > div,
-#logo-container,
-.login-kpi {
+#logo-container {
   background: #ffffff !important;
   border-color: rgba(0,0,0,.08) !important;
   box-shadow: 0 1px 2px rgba(0,0,0,.04) !important;
@@ -1827,33 +1399,6 @@ body::before {
 #view-monthly-plan,
 #view-weekly-plan {
   background: transparent !important;
-}
-
-.login-brand {
-  background:
-    linear-gradient(180deg, #ffffff 0%, #f5f5f7 100%) !important;
-  color: var(--text-main) !important;
-  border-right: 1px solid rgba(0,0,0,.08);
-}
-
-.login-brand .text-white,
-.login-brand h1 {
-  color: var(--text-main) !important;
-}
-
-.login-brand .text-blue-100\/90,
-.login-brand .text-blue-100\/80 {
-  color: var(--text-muted) !important;
-}
-
-.login-brand .bg-white\/15 {
-  background: rgba(0,122,255,.08) !important;
-  border-color: rgba(0,122,255,.12) !important;
-  color: var(--primary) !important;
-}
-
-.login-auth {
-  color: var(--text-main);
 }
 
 .grad-primary,
@@ -2182,13 +1727,6 @@ button.bg-red-600,
   color: #ffffff !important;
 }
 
-.login-brand p,
-.login-brand .text-blue-100\/90,
-.login-brand .text-blue-100\/80,
-.login-kpi p:last-child {
-  color: #4b4b50 !important;
-}
-
 .pin-box,
 .numpad-btn {
   color: #111113 !important;
@@ -2380,21 +1918,11 @@ tbody tr:focus-within,
   color: var(--read-text) !important;
 }
 
-.login-brand,
 .grad-primary,
 .grad-accent,
 button.bg-blue-900,
 button.bg-purple-600,
 button.bg-teal-600 {
-  color: #ffffff !important;
-}
-
-.login-brand h1,
-.login-brand .font-black,
-.login-brand p,
-.login-brand .text-white,
-.login-brand .text-blue-100\/90,
-.login-brand .text-blue-100\/80 {
   color: #ffffff !important;
 }
 
@@ -2989,6 +2517,10 @@ body.dark #view-annual-plan table thead th.gantt-now-col {
   background: #ffffff !important;
   border: none !important;
   box-shadow: 0 10px 24px rgba(2,6,23,.18) !important;
+}
+#sidebar .sidebar-item.active::before {
+  background: var(--primary);
+  box-shadow: none;
 }
 #sidebar .sidebar-item.active,
 #sidebar .sidebar-item.active .sidebar-label,
