@@ -4,7 +4,7 @@
 import { state } from './state.js';
 import { hasPermission } from './permissions.js';
 import { hideAllViews, setHeader, updateNavActive } from './auth.js';
-import { escapeHTML } from '../utils/format.js';
+import { escapeHTML, escapeJsAttr } from '../utils/format.js';
 import * as gas from '../gas.js';
 
 export async function showUsers() {
@@ -45,7 +45,7 @@ function renderUserCards() {
     <div class="mobile-list-card">
       <div class="flex items-center gap-3">
         <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-bold shrink-0">
-          ${escapeHTML(u.name.substring(0, 2).toUpperCase())}</div>
+          ${escapeHTML(String(u.name || '').substring(0, 2).toUpperCase())}</div>
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2">
             <p class="font-bold text-gray-800 text-sm truncate">${escapeHTML(u.name)}</p>
@@ -54,8 +54,8 @@ function renderUserCards() {
           <p class="text-xs text-gray-400 truncate">${escapeHTML(u.email || '-')} • ${escapeHTML(u.id)}</p>
         </div>
         <div class="flex items-center gap-1.5 shrink-0">
-          <button onclick="window._editUser('${u.id}')" class="w-9 h-9 inline-flex items-center justify-center rounded-xl bg-blue-50 text-blue-600 active:bg-blue-100 transition" aria-label="แก้ไขผู้ใช้"><i class="fa-solid fa-pen-to-square text-sm"></i></button>
-          <button onclick="window._deleteUser('${u.id}')" class="w-9 h-9 inline-flex items-center justify-center rounded-xl bg-rose-50 text-rose-500 active:bg-rose-100 transition" aria-label="ลบผู้ใช้"><i class="fa-solid fa-trash text-sm"></i></button>
+          <button onclick="window._editUser('${escapeJsAttr(u.id)}')" class="w-9 h-9 inline-flex items-center justify-center rounded-xl bg-blue-50 text-blue-600 active:bg-blue-100 transition" aria-label="แก้ไขผู้ใช้"><i class="fa-solid fa-pen-to-square text-sm"></i></button>
+          <button onclick="window._deleteUser('${escapeJsAttr(u.id)}')" class="w-9 h-9 inline-flex items-center justify-center rounded-xl bg-rose-50 text-rose-500 active:bg-rose-100 transition" aria-label="ลบผู้ใช้"><i class="fa-solid fa-trash text-sm"></i></button>
         </div>
       </div>
     </div>`).join('');
@@ -82,7 +82,7 @@ export function renderUserTable() {
       <td class="px-6 py-4 text-xs font-mono text-gray-400">${escapeHTML(u.id)}</td>
       <td class="px-6 py-4"><div class="flex items-center space-x-3">
         <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-bold">
-          ${u.name.substring(0,2).toUpperCase()}</div>
+          ${escapeHTML(String(u.name || '').substring(0, 2).toUpperCase())}</div>
         <div><p class="font-bold text-gray-800 text-sm">${escapeHTML(u.name)}</p>
           <p class="text-xs text-gray-400">${escapeHTML(u.email)}</p></div></div></td>
       <td class="px-6 py-4">
@@ -92,8 +92,8 @@ export function renderUserTable() {
       <td class="px-6 py-4 text-xs text-gray-500">${escapeHTML(u.email || '-')}</td>
       <td class="px-6 py-4">
         <div class="flex items-center justify-end space-x-2">
-          <button onclick="window._editUser('${u.id}')" class="p-2 text-blue-500 hover:bg-blue-50 rounded-xl transition"><i class="fa-solid fa-pen-to-square text-sm"></i></button>
-          <button onclick="window._deleteUser('${u.id}')" class="p-2 text-red-400 hover:bg-red-50 rounded-xl transition"><i class="fa-solid fa-trash text-sm"></i></button>
+          <button onclick="window._editUser('${escapeJsAttr(u.id)}')" class="p-2 text-blue-500 hover:bg-blue-50 rounded-xl transition"><i class="fa-solid fa-pen-to-square text-sm"></i></button>
+          <button onclick="window._deleteUser('${escapeJsAttr(u.id)}')" class="p-2 text-red-400 hover:bg-red-50 rounded-xl transition"><i class="fa-solid fa-trash text-sm"></i></button>
         </div></td>`;
     tbody.appendChild(tr);
   });

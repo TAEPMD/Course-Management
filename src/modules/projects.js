@@ -7,7 +7,7 @@ import { clearClientSession, hideAllViews, isAuthExpiredError, setHeader, update
 import { populateDropdown } from './masterData.js';
 import { renderBudgetLedger } from './budget.js';
 import { renderFiscalCalendar, renderScheduleSessions } from './schedule.js';
-import { escapeHTML, formatCurrency } from '../utils/format.js';
+import { escapeHTML, escapeJsAttr, formatCurrency } from '../utils/format.js';
 import {
   FISCAL_MONTH_NAMES,
   clampNumber,
@@ -296,7 +296,7 @@ function renderGovernanceDashboard() {
           const tone = getHealthTone(health);
           const reason = health.reasons[0] || (tasks.overdue ? `งานเกินกำหนด ${tasks.overdue} รายการ` : 'ควรติดตามความคืบหน้า');
           return `
-            <button type="button" class="governance-focus-row" onclick="app.openProject('${escapeHTML(project.id)}')">
+            <button type="button" class="governance-focus-row" onclick="app.openProject('${escapeJsAttr(project.id)}')">
               <span class="health-dot ${tone.badge}"><i class="fa-solid ${tone.icon}"></i></span>
               <span class="min-w-0 text-left">
                 <strong class="block truncate">${escapeHTML(project.name || project.id)}</strong>
@@ -1027,7 +1027,7 @@ function renderCourseManagementInsights(projects) {
         </div>
         <div class="course-focus-list">
           ${focusItems.length ? focusItems.map(({ project, health }) => `
-            <button type="button" onclick="app.openProject('${escapeHTML(project.id)}')">
+            <button type="button" onclick="app.openProject('${escapeJsAttr(project.id)}')">
               <span class="${health.tone}"><i class="fa-solid ${health.icon}"></i></span>
               <strong>${escapeHTML(project.name || project.id)}</strong>
               <small>${escapeHTML(health.reasons[0] || 'ควรติดตาม')}</small>
@@ -1051,7 +1051,7 @@ function renderCourseManagementCards(projects) {
     const tasks = getTaskStats(project);
     const budget = getBudgetUsage(project);
     return `
-      <article class="course-management-card" onclick="app.openProject('${escapeHTML(project.id)}')" role="button" tabindex="0">
+      <article class="course-management-card" onclick="app.openProject('${escapeJsAttr(project.id)}')" role="button" tabindex="0">
         <div class="course-management-card-head">
           <div>
             <strong>${escapeHTML(project.name || project.id)}</strong>
@@ -1066,8 +1066,8 @@ function renderCourseManagementCards(projects) {
         </div>
         <div class="course-management-card-actions">
           ${renderHealthBadge(project, true)}
-          <button type="button" onclick="event.stopPropagation(); app.openProject('${escapeHTML(project.id)}')"><i class="fa-solid fa-pen-to-square"></i></button>
-          <button type="button" onclick="event.stopPropagation(); app.deleteProject('${escapeHTML(project.id)}')"><i class="fa-solid fa-trash-can"></i></button>
+          <button type="button" onclick="event.stopPropagation(); app.openProject('${escapeJsAttr(project.id)}')"><i class="fa-solid fa-pen-to-square"></i></button>
+          <button type="button" onclick="event.stopPropagation(); app.deleteProject('${escapeJsAttr(project.id)}')"><i class="fa-solid fa-trash-can"></i></button>
         </div>
       </article>`;
   }).join('');
@@ -1086,7 +1086,7 @@ function renderCourseManagementTable(projects) {
     const tasks = getTaskStats(project);
     const budget = getBudgetUsage(project);
     return `
-      <tr onclick="app.openProject('${escapeHTML(project.id)}')">
+      <tr onclick="app.openProject('${escapeJsAttr(project.id)}')">
         <td>
           <div class="course-row-title">
             <strong>${escapeHTML(project.name || project.id)}</strong>
@@ -1106,8 +1106,8 @@ function renderCourseManagementTable(projects) {
         </td>
         <td class="text-center">
           <div class="course-row-actions">
-            <button type="button" onclick="event.stopPropagation(); app.openProject('${escapeHTML(project.id)}')" title="แก้ไขหลักสูตร"><i class="fa-solid fa-pen-to-square"></i></button>
-            <button type="button" onclick="event.stopPropagation(); app.deleteProject('${escapeHTML(project.id)}')" title="ลบหลักสูตร"><i class="fa-solid fa-trash-can"></i></button>
+            <button type="button" onclick="event.stopPropagation(); app.openProject('${escapeJsAttr(project.id)}')" title="แก้ไขหลักสูตร"><i class="fa-solid fa-pen-to-square"></i></button>
+            <button type="button" onclick="event.stopPropagation(); app.deleteProject('${escapeJsAttr(project.id)}')" title="ลบหลักสูตร"><i class="fa-solid fa-trash-can"></i></button>
           </div>
         </td>
       </tr>`;
@@ -1144,8 +1144,8 @@ function renderProjectCards(projects) {
     const taskCount = p.tasks?.length || 0;
     const doneTasks = p.tasks?.filter(t => t.status === 'done').length || 0;
     return `
-      <div class="mobile-list-card" onclick="app.openProject('${escapeHTML(p.id)}')" role="button" tabindex="0"
-           onkeydown="if(event.key==='Enter')app.openProject('${escapeHTML(p.id)}')">
+      <div class="mobile-list-card" onclick="app.openProject('${escapeJsAttr(p.id)}')" role="button" tabindex="0"
+           onkeydown="if(event.key==='Enter')app.openProject('${escapeJsAttr(p.id)}')">
         <div class="flex items-start justify-between gap-2 mb-2">
           <div class="min-w-0">
             <p class="font-bold text-gray-800 text-sm truncate">${escapeHTML(p.name)}</p>
@@ -1163,10 +1163,10 @@ function renderProjectCards(projects) {
           <p class="text-xs text-gray-500 font-bold">${formatCurrency(p.budget)} บาท${taskCount ? ` • ${doneTasks}/${taskCount} งาน` : ''}</p>
           ${renderHealthBadge(p, true)}
           <div class="flex items-center gap-1.5">
-            <button type="button" onclick="event.stopPropagation(); app.openProject('${escapeHTML(p.id)}')" class="w-9 h-9 inline-flex items-center justify-center rounded-xl bg-blue-50 text-blue-700 active:bg-blue-100 transition" aria-label="แก้ไขหลักสูตร">
+            <button type="button" onclick="event.stopPropagation(); app.openProject('${escapeJsAttr(p.id)}')" class="w-9 h-9 inline-flex items-center justify-center rounded-xl bg-blue-50 text-blue-700 active:bg-blue-100 transition" aria-label="แก้ไขหลักสูตร">
               <i class="fa-solid fa-pen-to-square text-xs"></i>
             </button>
-            <button type="button" onclick="event.stopPropagation(); app.deleteProject('${escapeHTML(p.id)}')" class="w-9 h-9 inline-flex items-center justify-center rounded-xl bg-rose-50 text-rose-600 active:bg-rose-100 transition" aria-label="ลบหลักสูตร">
+            <button type="button" onclick="event.stopPropagation(); app.deleteProject('${escapeJsAttr(p.id)}')" class="w-9 h-9 inline-flex items-center justify-center rounded-xl bg-rose-50 text-rose-600 active:bg-rose-100 transition" aria-label="ลบหลักสูตร">
               <i class="fa-solid fa-trash-can text-xs"></i>
             </button>
           </div>
@@ -1219,10 +1219,10 @@ export function renderProjectTable() {
       <td class="px-6 py-4 text-xs text-gray-500 text-right">${formatCurrency(p.budget)}</td>
       <td class="px-6 py-4">
         <div class="flex items-center justify-center gap-2">
-          <button type="button" onclick="event.stopPropagation(); app.openProject('${escapeHTML(p.id)}')" class="w-9 h-9 inline-flex items-center justify-center rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 transition" title="แก้ไขหลักสูตร">
+          <button type="button" onclick="event.stopPropagation(); app.openProject('${escapeJsAttr(p.id)}')" class="w-9 h-9 inline-flex items-center justify-center rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 transition" title="แก้ไขหลักสูตร">
             <i class="fa-solid fa-pen-to-square text-xs"></i>
           </button>
-          <button type="button" onclick="event.stopPropagation(); app.deleteProject('${escapeHTML(p.id)}')" class="w-9 h-9 inline-flex items-center justify-center rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 transition" title="ลบหลักสูตร">
+          <button type="button" onclick="event.stopPropagation(); app.deleteProject('${escapeJsAttr(p.id)}')" class="w-9 h-9 inline-flex items-center justify-center rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 transition" title="ลบหลักสูตร">
             <i class="fa-solid fa-trash-can text-xs"></i>
           </button>
         </div>
@@ -1425,7 +1425,7 @@ export async function uploadDocument() {
     return;
   }
   const status = document.getElementById('upload-status');
-  if (status) status.innerHTML = `<span class="text-blue-600 font-bold animate-pulse">Uploading ${f.name}...</span>`;
+  if (status) status.innerHTML = `<span class="text-blue-600 font-bold animate-pulse">Uploading ${escapeHTML(f.name)}...</span>`;
   const reader = new FileReader();
   reader.onload = async e => {
     try {
@@ -1433,14 +1433,14 @@ export async function uploadDocument() {
       const url = await gas.uploadFile(data, f.name);
       state.currentProject.docs ||= [];
       state.currentProject.docs.push({ name: f.name, date: new Date().toISOString().split('T')[0], url });
-      if (status) status.innerHTML = `<span class="text-blue-600 font-bold animate-pulse">Saving ${f.name}...</span>`;
+      if (status) status.innerHTML = `<span class="text-blue-600 font-bold animate-pulse">Saving ${escapeHTML(f.name)}...</span>`;
       await gas.saveProject(state.currentProject);
       if (inp) inp.value = '';
       if (status) status.innerHTML = `<span class="text-emerald-500 font-bold">Success!</span>`;
       setTimeout(() => { if (status) status.innerHTML = ''; }, 3000);
       renderDocsTable();
     } catch (err) {
-      if (status) status.innerHTML = `<span class="text-red-500 font-bold">${err.message}</span>`;
+      if (status) status.innerHTML = `<span class="text-red-500 font-bold">${escapeHTML(err.message)}</span>`;
     }
   };
   reader.readAsDataURL(f);
@@ -1570,7 +1570,7 @@ export function renderAnnualTimeline() {
       const tone = getHealthTone(health);
       const tooltip = `${p.name || p.id} • ${rangeLabel} • ${normalizeProjectStatus(p.status)} • คืบหน้า ${p.progress || 0}%`;
       return `
-      <tr class="hover:bg-slate-50 cursor-pointer" onclick="app.openProject('${escapeHTML(p.id)}')" title="${escapeHTML(tooltip)} — คลิกเพื่อเปิดหลักสูตร">
+      <tr class="hover:bg-slate-50 cursor-pointer" onclick="app.openProject('${escapeJsAttr(p.id)}')" title="${escapeHTML(tooltip)} — คลิกเพื่อเปิดหลักสูตร">
         <td class="px-4 py-3">
           <div class="flex items-center gap-2.5 min-w-0">
             <span class="health-dot ${tone.badge}" title="${escapeHTML(health.reasons.join(' • ') || 'ไม่มีประเด็นสำคัญ')}"><i class="fa-solid ${tone.icon}"></i></span>
@@ -2122,7 +2122,7 @@ function _renderKanbanSubtasks(task) {
       <div class="kanban-subtask-list">
         ${subtasks.map(subtask => `
           <button type="button" class="kanban-subtask ${subtask.done ? 'done' : ''}"
-                  onclick="app.toggleKanbanSubtask('${escapeHTML(task.id)}','${escapeHTML(subtask.id)}')"
+                  onclick="app.toggleKanbanSubtask('${escapeJsAttr(task.id)}','${escapeJsAttr(subtask.id)}')"
                   aria-pressed="${subtask.done}" title="${subtask.done ? 'ทำเครื่องหมายว่ายังไม่เสร็จ' : 'ทำเครื่องหมายว่าเสร็จแล้ว'}">
             <i class="fa-${subtask.done ? 'solid fa-circle-check' : 'regular fa-circle'}"></i>
             <span>${escapeHTML(subtask.title)}</span>
@@ -2141,21 +2141,21 @@ function _taskCard(task) {
   const nextCol = KANBAN_COLS[colIndex + 1];
   return `
     <div class="kanban-card ${statusColorClass} kanban-pri-${task.priority || 'medium'}" draggable="true" data-task-id="${escapeHTML(task.id)}"
-         onclick="app.onKanbanCardClick(event,'${task.id}')"
-         ondragstart="app.onKanbanDragStart(event,'${task.id}')"
+         onclick="app.onKanbanCardClick(event,'${escapeJsAttr(task.id)}')"
+         ondragstart="app.onKanbanDragStart(event,'${escapeJsAttr(task.id)}')"
          ondragend="app.onKanbanDragEnd(event)">
       <div class="flex items-start justify-between gap-2 mb-2">
         <p class="kanban-card-title font-bold text-gray-800 text-sm leading-snug flex-1">${escapeHTML(task.title)}</p>
         <div class="kanban-card-actions flex-shrink-0">
-          <button type="button" onclick="event.stopPropagation();app.duplicateKanbanTask('${task.id}')"
+          <button type="button" onclick="event.stopPropagation();app.duplicateKanbanTask('${escapeJsAttr(task.id)}')"
                   class="kanban-icon-btn duplicate" title="ทำสำเนางาน" aria-label="ทำสำเนางาน">
             <i class="fa-regular fa-copy"></i>
           </button>
-          <button type="button" onclick="event.stopPropagation();app.editKanbanTask('${task.id}')"
+          <button type="button" onclick="event.stopPropagation();app.editKanbanTask('${escapeJsAttr(task.id)}')"
                   class="kanban-icon-btn edit" title="แก้ไขงาน" aria-label="แก้ไขงาน">
             <i class="fa-solid fa-pen"></i>
           </button>
-          <button type="button" onclick="event.preventDefault();event.stopPropagation();app.deleteKanbanTask('${task.id}')"
+          <button type="button" onclick="event.preventDefault();event.stopPropagation();app.deleteKanbanTask('${escapeJsAttr(task.id)}')"
                   class="kanban-icon-btn delete" title="ลบงาน" aria-label="ลบงาน">
             <i class="fa-solid fa-xmark"></i>
           </button>
@@ -2175,12 +2175,12 @@ function _taskCard(task) {
       </div>
       <div class="kanban-card-footer">
         ${prevCol
-          ? `<button type="button" onclick="event.stopPropagation();app.moveKanbanTask('${task.id}','${prevCol.id}')" class="kanban-move-btn" title="ย้ายไป ${prevCol.label}">
+          ? `<button type="button" onclick="event.stopPropagation();app.moveKanbanTask('${escapeJsAttr(task.id)}','${escapeJsAttr(prevCol.id)}')" class="kanban-move-btn" title="ย้ายไป ${prevCol.label}">
                <i class="fa-solid fa-chevron-left"></i><span>${prevCol.label}</span>
              </button>`
           : '<span></span>'}
         ${nextCol
-          ? `<button type="button" onclick="event.stopPropagation();app.moveKanbanTask('${task.id}','${nextCol.id}')" class="kanban-move-btn next" title="ย้ายไป ${nextCol.label}">
+          ? `<button type="button" onclick="event.stopPropagation();app.moveKanbanTask('${escapeJsAttr(task.id)}','${escapeJsAttr(nextCol.id)}')" class="kanban-move-btn next" title="ย้ายไป ${nextCol.label}">
                <span>${nextCol.label}</span><i class="fa-solid fa-chevron-right"></i>
              </button>`
           : '<span></span>'}
@@ -2359,7 +2359,7 @@ function _renderKanbanGantt(tasks) {
       <p class="gantt-unscheduled-title"><i class="fa-regular fa-calendar-xmark"></i> ยังไม่กำหนดวัน (${unscheduled.length})</p>
       <div class="gantt-unscheduled-list">
         ${unscheduled.map(t => `
-          <button type="button" class="gantt-unscheduled-chip" onclick="app.editKanbanTask('${t.id}')" title="คลิกเพื่อกำหนดวัน">
+          <button type="button" class="gantt-unscheduled-chip" onclick="app.editKanbanTask('${escapeJsAttr(t.id)}')" title="คลิกเพื่อกำหนดวัน">
             <i class="fa-solid fa-plus text-[9px]"></i>${escapeHTML(t.title)}
           </button>`).join('')}
       </div>
@@ -2468,15 +2468,15 @@ function _renderKanbanGantt(tasks) {
 
       const shape = milestone
         ? `<button type="button" class="gantt-milestone ${barCls}" style="left:${left + dayW / 2}px" title="${tip}"
-                   onclick="app.editKanbanTask('${task.id}')"></button>`
+                   onclick="app.editKanbanTask('${escapeJsAttr(task.id)}')"></button>`
         : `<button type="button" class="gantt-bar ${barCls}" style="left:${left}px;width:${width}px" title="${tip}"
-                   onclick="app.editKanbanTask('${task.id}')">
+                   onclick="app.editKanbanTask('${escapeJsAttr(task.id)}')">
              ${width >= 56 ? `<span class="gantt-bar-text">${durationDays} วัน${task.assignee ? ' • ' + escapeHTML(task.assignee) : ''}</span>` : ''}
            </button>`;
 
       return `
         <div class="gantt-row">
-          <div class="gantt-label gantt-task-label" onclick="app.editKanbanTask('${task.id}')" title="${escapeHTML(task.title)}">
+          <div class="gantt-label gantt-task-label" onclick="app.editKanbanTask('${escapeJsAttr(task.id)}')" title="${escapeHTML(task.title)}">
             <span class="gantt-label-dot ${barCls}"></span>
             <span class="gantt-label-text ${task.status === 'done' ? 'done' : ''}">${escapeHTML(task.title)}</span>
             ${task.assignee ? `<span class="gantt-label-assignee">${escapeHTML(task.assignee)}</span>` : ''}
@@ -2569,7 +2569,7 @@ export function renderKanban(project) {
            data-status="${col.id}"
            ondragover="app.onKanbanDragOver(event)"
            ondragleave="event.target === this && this.classList.remove('drag-over')"
-           ondrop="app.onKanbanDrop(event,'${col.id}')">
+           ondrop="app.onKanbanDrop(event,'${escapeJsAttr(col.id)}')">
         <div class="kanban-col-header">
           <div class="flex items-center gap-2">
             <i class="fa-solid ${col.icon} text-sm opacity-60"></i>
@@ -2577,7 +2577,7 @@ export function renderKanban(project) {
             <span class="kanban-count ${col.countBg}">${tasks.length}</span>
             ${tasks.length !== totalInColumn ? `<span class="kanban-muted-count">${totalInColumn} ทั้งหมด</span>` : ''}
           </div>
-          <button onclick="app.addKanbanTask('${col.id}')"
+          <button onclick="app.addKanbanTask('${escapeJsAttr(col.id)}')"
                   class="kanban-add-btn ${col.addColor}" title="เพิ่มงาน">
             <i class="fa-solid fa-plus text-xs"></i>
           </button>
