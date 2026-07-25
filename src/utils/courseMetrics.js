@@ -55,7 +55,7 @@ export function getBudgetControl(project) {
     .filter(entry => entry?.type !== 'income' && entry?.status === 'paid')
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
   const pendingClaim = ledger
-    .filter(entry => entry?.type !== 'income' && ['approved', 'obligated', 'claiming'].includes(entry?.status || 'requested'))
+    .filter(entry => entry?.type !== 'income' && ['approved', 'obligated', 'billed', 'claiming'].includes(entry?.status || 'requested'))
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
   const usagePct = budget > 0 ? Math.round((expense / budget) * 100) : 0;
 
@@ -126,7 +126,7 @@ export function getProjectHealthInsight(project, now = new Date()) {
     return due < today;
   }).length;
   const pendingClaims = (project?.ledger || []).filter(entry =>
-    entry?.type !== 'income' && ['obligated', 'claiming'].includes(entry?.status || '')
+    entry?.type !== 'income' && ['obligated', 'billed', 'claiming'].includes(entry?.status || '')
   ).length;
 
   if (budget.usagePct >= 100) issues.push('งบประมาณถูกใช้/ผูกพันเกินแผน');

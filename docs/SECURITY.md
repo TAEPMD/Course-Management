@@ -1,0 +1,111 @@
+# ความปลอดภัยของระบบเข้าสู่ระบบ (Authentication & Authorization)
+
+เอกสารนี้อธิบายมาตรการที่ระบบใช้ และ **ขั้นตอนที่ต้องทำเมื่อ deploy เวอร์ชันนี้ครั้งแรก**
+
+---
+
+## 1. สิ่งที่ต้องทำก่อนใช้งาน (ทำครั้งเดียว)
+
+> ⚠️ ถ้าไม่ทำขั้นตอนที่ 1–2 ระบบจะล็อกอินไม่ได้ เพราะ backend เดิมยังไม่รู้จัก action `login`
+
+1. **อัปเดต Apps Script**
+   - เปิดโปรเจกต์ Apps Script ที่ผูกกับ Google Sheet
+   - แทนที่เนื้อหาไฟล์ `Code.gs` ด้วย `Code.gs` ที่ root ของ repo นี้
+     (อย่าใช้ `gas/Code.gs` — เป็นไฟล์รุ่นทดลองที่เลิกใช้แล้ว)
+   - Deploy → Manage deployments → แก้ deployment เดิม → New version → Deploy
+     (ใช้ deployment เดิมเพื่อให้ URL ไม่เปลี่ยน)
+
+2. **รัน `migrateSecurity()` หนึ่งครั้ง** จาก Apps Script editor
+   - เพิ่มคอลัมน์ `Username`, `Status`, `PinUpdatedAt` ในชีต `Users`
+   - แปลง PIN ที่เก็บเป็น plaintext ให้เป็นค่า hash (salt + pepper)
+   - เติม `Username` จากอีเมลให้บัญชีที่ยังไม่มี
+   - ลบ `adminPin` ที่ค้างใน ScriptProperties
+   - PIN เดิมยังใช้ล็อกอินได้ **หนึ่งครั้ง** แล้วระบบจะบังคับตั้ง PIN 6 หลักใหม่
+
+3. **ตรวจว่าทุกบัญชีมีชื่อผู้ใช้หรืออีเมล** ในชีต `Users`
+   บัญชีที่ไม่มีทั้งสองอย่างจะล็อกอินด้วย "ชื่อ-สกุล" ได้ แต่ควรตั้ง username ให้เรียบร้อย
+
+4. **ตั้ง environment variable บน Vercel** (แนะนำ)
+   - `GAS_WEB_APP_URL` — URL ของ GAS Web App
+   - `PROXY_FINGERPRINT_SALT` — ค่าสุ่มยาว ๆ ใช้ทำ fingerprint ของปลายทาง
+
+5. **ผู้ใช้ทุกคนต้องล็อกอินใหม่** หลัง deploy (รูปแบบ session เปลี่ยน)
+
+---
+
+## 2. มาตรการที่ระบบบังคับใช้
+
+### การพิสูจน์ตัวตน
+| ประเด็น | วิธีที่ใช้ |
+|---|---|
+| รหัสผ่าน | PIN 6–10 หลัก + **ต้องระบุชื่อผู้ใช้/อีเมล** (เดิมใช้ PIN 5 หลักอย่างเดียวทั้งระบบ) |
+| การเก็บ PIN | HMAC-SHA256 วนซ้ำ 1,024 รอบ + salt เฉพาะบัญชี + pepper ใน ScriptProperties |
+| นโยบาย PIN | ห้ามเลขซ้ำทั้งหมด / เลขเรียง / PIN ยอดนิยม / ซ้ำกับ PIN เดิม |
+| เดา PIN ซ้ำ ๆ | ผิด 5 ครั้ง → ล็อกบัญชี 1 นาที และเพิ่มเป็นเท่าตัวจนถึง 30 นาที |
+| เดาจากปลายทางเดียว | ผิดรวม 20 ครั้ง/15 นาที → บล็อกปลายทางนั้น 15 นาที (+ จำกัดที่ proxy อีกชั้น) |
+| ข้อความผิดพลาด | ข้อความกลางเสมอ ไม่บอกว่าบัญชีมีอยู่จริงหรือไม่ |
+| การเทียบค่า | เทียบแบบ constant-time + คำนวณ hash หลอกเมื่อไม่พบบัญชี (กัน timing attack) |
+
+### Session
+- Token เป็นค่าสุ่ม 256-bit **เก็บใน httpOnly + Secure + SameSite=Strict cookie** ที่ proxy เป็นผู้ตั้ง
+  → สคริปต์ในหน้าเว็บอ่านไม่ได้ ทำให้ XSS ขโมย session ไปใช้ไม่ได้
+- ฝั่งเซิร์ฟเวอร์เก็บเฉพาะ **hash ของ token**
+- หมดอายุเมื่อไม่มีการใช้งาน 30 นาที (sliding) และหมดอายุถาวรใน 8 ชั่วโมง
+- ผูกกับ user-agent — token ที่ถูกขโมยไปใช้ที่เครื่องอื่นจะถูกปฏิเสธ
+- ฝั่งหน้าเว็บมี auto-logout 30 นาทีพร้อมเตือนล่วงหน้า 1 นาที
+- `revokeAllSessions()` ใน Apps Script = ตัดทุก session ทันที (ไม่กระทบ PIN)
+
+### สิทธิ์ (Authorization)
+ตรวจที่ **เซิร์ฟเวอร์ทุกคำสั่ง** ไม่เชื่อค่าจากฝั่ง UI อีกต่อไป
+
+| คำสั่ง | สิทธิ์ที่ต้องมี |
+|---|---|
+| `getUsers`, `saveUserBackend`, `deleteUserBackend`, `saveSystemSetting` | Admin |
+| `saveProject`, `uploadFile`, `deleteFile` | Admin / Staff / Instructor |
+| `deleteProject` | Admin / Staff |
+| `getProjects`, `getSystemSettings`, `changeOwnPin` | ผู้ที่ล็อกอินแล้ว |
+| `getPublicSettings` | เปิดสาธารณะ (เฉพาะชื่อระบบ/โลโก้) |
+
+ข้อบังคับเพิ่มเติม: ต้องมีบัญชี Admin ที่ใช้งานได้อย่างน้อย 1 บัญชีเสมอ และลบบัญชีตัวเองไม่ได้
+
+### ชั้น proxy (`api/gas.js` + `vite.config.js`)
+- อนุญาตเฉพาะ action ใน allowlist
+- ต้องมี header `X-Requested-With: niem-app` และ Origin ตรงกับโฮสต์ (กัน CSRF)
+- จำกัดจำนวนครั้งล็อกอินต่อ IP และส่ง fingerprint (hash ของ IP/UA) ให้ GAS ใช้ทำ lockout
+- ไม่ส่งรายละเอียด error ภายในกลับไปให้ client
+- ตอบกลับด้วย `Cache-Control: no-store`
+
+### HTTP security headers (`vercel.json`)
+CSP, `X-Frame-Options: DENY`, `frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`,
+`Referrer-Policy`, `Permissions-Policy`, HSTS
+
+### ร่องรอยการตรวจสอบ (Audit)
+ทุกเหตุการณ์สำคัญถูกบันทึกในชีต **`AuthLog`** (สร้างอัตโนมัติ):
+ล็อกอินสำเร็จ/ไม่สำเร็จ, ถูกล็อก, บัญชีถูกระงับ, เปลี่ยน PIN, สร้าง/แก้ไข/ลบผู้ใช้,
+เรียกคำสั่งเกินสิทธิ์, session ไม่ตรง user-agent — เก็บล่าสุด 5,000 แถว
+
+---
+
+## 3. ช่องโหว่ที่แก้ในเวอร์ชันนี้
+
+| ปัญหาเดิม | ความเสี่ยง | สถานะ |
+|---|---|---|
+| PIN เก็บเป็น plaintext ในชีต | ใครเห็นชีตก็ล็อกอินเป็นใครก็ได้ | แก้แล้ว (hash + salt + pepper) |
+| `getUsers()` คืน PIN ของทุกคนให้ทุก role | ผู้ใช้สิทธิ์ต่ำสุดยกระดับเป็น Admin ได้ | แก้แล้ว (Admin เท่านั้น + ไม่คืน PIN) |
+| ไม่ตรวจ role ฝั่งเซิร์ฟเวอร์เลย | แก้ sessionStorage หรือยิง API ตรง = ทำได้ทุกอย่าง | แก้แล้ว |
+| `verifyPin` ไม่มี rate limit, PIN 5 หลักใช้ร่วมทั้งระบบ | เดาครบ 100,000 ค่าได้ในเวลาสั้น ๆ | แก้แล้ว (ต้องมีชื่อผู้ใช้ + lockout + PIN 6 หลัก) |
+| Token อยู่ใน `sessionStorage` | XSS ขโมย session ได้ | แก้แล้ว (httpOnly cookie) |
+| `getSystemSettings()` เปิดสาธารณะและคืน `adminPin` | รหัสผู้ดูแลรั่วโดยไม่ต้องล็อกอิน | แก้แล้ว |
+| ไม่มี session timeout / audit log | ตรวจสอบย้อนหลังไม่ได้ | แก้แล้ว |
+
+---
+
+## 4. สิ่งที่ยังควรทำต่อ (ข้อจำกัดที่เหลือ)
+
+- **PIN ตัวเลขล้วนยังอ่อนกว่ารหัสผ่านทั่วไป** — ถ้าต้องการตามมาตรฐาน NIST 800-63B เต็มรูปแบบ
+  ควรเปลี่ยนเป็นรหัสผ่าน ≥ 8 ตัวอักษร หรือเพิ่ม MFA (เช่น TOTP)
+- **การจำกัดจำนวนครั้งที่ proxy เป็นแบบ best-effort** (in-memory ต่ออินสแตนซ์)
+  ด่านที่แม่นยำคือฝั่ง GAS ซึ่งใช้ CacheService ร่วมกัน — ถ้าต้องการแม่นกว่านี้ให้ต่อ Vercel KV / Upstash
+- **CSP ยังต้องใช้ `unsafe-inline`/`unsafe-eval`** เพราะโหลด Tailwind Play CDN และมี inline script
+  ถ้าย้ายไป build Tailwind ตอน compile จะตัดสองค่านี้ออกได้
+- ยังไม่มีการแจ้งเตือนอัตโนมัติเมื่อพบความพยายามล็อกอินผิดปกติ (ตอนนี้ดูย้อนหลังใน `AuthLog`)

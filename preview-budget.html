@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>Budget Preview Harness</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+<link rel="stylesheet" href="/src/style.css">
+</head>
+<body class="p-6 bg-slate-100 space-y-4">
+  <input type="hidden" id="input-proj-budget" value="150000">
+  <div class="grid grid-cols-5 gap-3 text-center text-sm font-black">
+    <div>รายรับ <p id="budget-total-income"></p></div>
+    <div>ผูกพัน <p id="budget-total-expense"></p></div>
+    <div>วางบิล/รอเบิก <p id="budget-claim-queue"></p></div>
+    <div>จ่ายแล้ว <p id="budget-paid-expense"></p></div>
+    <div>คงเหลือ <p id="budget-balance"></p></div>
+  </div>
+  <div class="bg-amber-50 p-4 rounded-2xl">
+    <p class="text-xs font-black mb-2">รายการต้องติดตาม <span id="budget-alert-count"></span></p>
+    <div id="budget-alert-list" class="space-y-2"></div>
+  </div>
+  <div id="budget-billing-panel"></div>
+  <div id="budget-visual-panel"></div>
+  <div class="bg-white rounded-2xl overflow-x-auto">
+    <table class="w-full text-left min-w-[1120px]">
+      <tbody id="budget-ledger-body" class="divide-y divide-gray-50"></tbody>
+    </table>
+  </div>
+  <div id="budget-entry-modal" class="hidden"></div>
+  <script type="module">
+    import { state } from '/src/modules/state.js';
+    import { renderBudgetLedger, openBudgetEntry, openBillIntake } from '/src/modules/budget.js';
+    state.currentUserName = 'ผู้ทดสอบระบบ';
+    state.currentProject = {
+      id: 'TR-69-01', budget: 150000,
+      ledger: [
+        { date: '2026-06-10', type: 'expense', status: 'paid', desc: 'ค่าวิทยากรหลักสูตร EMT', payee: 'นพ.สมชาย', cat: 'ค่าวิทยากร', docNo: 'INV-001', dueDate: '2026-06-30', paidDate: '2026-06-28', payRef: 'PV-012/2569', amount: 24000,
+          attachments: [{ name: 'สลิปโอน-วิทยากร.jpg', date: '2026-06-28', url: 'data:image/png;base64,iVBORw0KGgo=' }],
+          history: [
+            { at: '2026-06-10T09:00:00Z', by: 'ผู้ทดสอบระบบ', text: 'สร้างรายการ (ขออนุมัติ)' },
+            { at: '2026-06-15T10:00:00Z', by: 'ผู้ทดสอบระบบ', text: 'เปลี่ยนสถานะ: ขออนุมัติ → อนุมัติแล้ว' },
+            { at: '2026-06-28T14:30:00Z', by: 'ผู้ทดสอบระบบ', text: 'เปลี่ยนสถานะ: ตั้งเบิก/รอจ่าย → จ่ายแล้ว' }
+          ] },
+        { date: '2026-06-20', type: 'expense', status: 'billed', desc: 'ค่าอาหารว่างผู้อบรม 3 วัน', payee: 'ร้านครัวคุณนาย', cat: 'ค่าอาหาร', docNo: 'BILL-045', billDate: '2026-06-20', dueDate: '2026-07-20', amount: 18500, attachments: [], history: [] },
+        { date: '2026-06-25', type: 'expense', status: 'claiming', desc: 'ค่าวัสดุฝึกปฏิบัติ CPR', payee: 'บ.เมดิคอลซัพพลาย', cat: 'ค่าวัสดุ', docNo: '', dueDate: '2026-07-05', amount: 32000, attachments: [], history: [] },
+        { date: '2026-07-01', type: 'expense', status: 'requested', desc: 'ค่าเช่าห้องประชุม', payee: 'โรงแรมริเวอร์วิว', cat: 'ค่าสถานที่', docNo: '', dueDate: '', amount: 15000, attachments: [], history: [] },
+        { date: '2026-06-05', type: 'income', status: 'paid', desc: 'เงินสนับสนุนจาก สพฉ.', payee: 'สพฉ.', cat: 'เงินรับ/สนับสนุน', amount: 30000 }
+      ]
+    };
+    renderBudgetLedger();
+    if (location.search.includes('modal')) openBudgetEntry(Number(new URLSearchParams(location.search).get('modal')) || 0);
+    if (location.search.includes('intake')) openBillIntake();
+  </script>
+</body>
+</html>

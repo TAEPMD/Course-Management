@@ -5,10 +5,10 @@
 import { state } from './state.js';
 
 const DEFAULT_PERMISSIONS = {
-  Admin:      { dashboard: true,  annual: true,  monthly: true,  weekly: true,  users: true,  settings: true  },
-  Staff:      { dashboard: true,  annual: true,  monthly: true,  weekly: true,  users: false, settings: false },
-  Instructor: { dashboard: true,  annual: false, monthly: true,  weekly: true,  users: false, settings: false },
-  Trainee:    { dashboard: true,  annual: false, monthly: false, weekly: true,  users: false, settings: false }
+  Admin:      { dashboard: true,  courses: true, annual: true,  monthly: true,  weekly: true,  users: true,  settings: true  },
+  Staff:      { dashboard: true,  courses: true, annual: true,  monthly: true,  weekly: true,  users: false, settings: false },
+  Instructor: { dashboard: true,  courses: true, annual: false, monthly: true,  weekly: true,  users: false, settings: false },
+  Trainee:    { dashboard: true,  courses: false, annual: false, monthly: false, weekly: true,  users: false, settings: false }
 };
 
 export function getDefaultPermissions() {
@@ -43,11 +43,18 @@ export function applyPermissions() {
 
   // Show/hide nav items based on permissions
   const navMap = {
+    'nav-courses':  'courses',
     'nav-annual':   'annual',
     'nav-monthly':  'monthly',
     'nav-weekly':   'weekly',
     'nav-users':    'users',
-    'nav-settings': 'settings'
+    'nav-settings': 'settings',
+    'm-nav-courses':  'courses',
+    'm-nav-annual':   'annual',
+    'm-nav-monthly':  'monthly',
+    'm-nav-weekly':   'weekly',
+    'm-nav-users':    'users',
+    'm-nav-settings': 'settings'
   };
   Object.entries(navMap).forEach(([navId, page]) => {
     const btn = document.getElementById(navId);
@@ -65,6 +72,7 @@ export function renderPermissionsTable() {
   const ROLES = ['Admin', 'Staff', 'Instructor', 'Trainee'];
   const PAGES = [
     { key: 'dashboard', label: 'Dashboard' },
+    { key: 'courses',   label: 'Courses' },
     { key: 'annual',    label: 'Annual' },
     { key: 'monthly',   label: 'Monthly' },
     { key: 'weekly',    label: 'Weekly' },

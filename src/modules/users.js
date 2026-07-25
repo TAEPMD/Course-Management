@@ -85,7 +85,10 @@ export function renderUserTable() {
           ${u.name.substring(0,2).toUpperCase()}</div>
         <div><p class="font-bold text-gray-800 text-sm">${escapeHTML(u.name)}</p>
           <p class="text-xs text-gray-400">${escapeHTML(u.email)}</p></div></div></td>
-      <td class="px-6 py-4"><span class="px-2 py-1 rounded-lg text-xs font-bold ${roleColor}">${escapeHTML(u.role)}</span></td>
+      <td class="px-6 py-4">
+        <span class="px-2 py-1 rounded-lg text-xs font-bold ${roleColor}">${escapeHTML(u.role)}</span>
+        ${u.status === 'disabled' ? '<span class="ml-1 px-2 py-1 rounded-lg text-[10px] font-bold text-slate-500 bg-slate-100">ระงับ</span>' : ''}
+      </td>
       <td class="px-6 py-4 text-xs text-gray-500">${escapeHTML(u.email || '-')}</td>
       <td class="px-6 py-4">
         <div class="flex items-center justify-end space-x-2">
@@ -99,14 +102,29 @@ export function renderUserTable() {
 export function showUserModal(userData) {
   const modal = document.getElementById('user-modal');
   if (!modal) return;
+  const isEdit = !!userData?.id;
   modal.classList.remove('hidden');
-  document.getElementById('user-modal-title').innerText = userData?.id ? 'แก้ไขผู้ใช้' : 'เพิ่มผู้ใช้ใหม่';
-  document.getElementById('modal-user-id').value    = userData?.id    || `U-${String(Date.now()).slice(-4)}`;
-  document.getElementById('modal-user-name').value  = userData?.name  || '';
-  document.getElementById('modal-user-email').value = userData?.email || '';
-  document.getElementById('modal-user-pin').value   = userData?.pin   || '';
+  document.getElementById('user-modal-title').innerText = isEdit ? 'แก้ไขผู้ใช้' : 'เพิ่มผู้ใช้ใหม่';
+  document.getElementById('modal-user-id').value       = userData?.id       || `U-${String(Date.now()).slice(-4)}`;
+  document.getElementById('modal-user-name').value     = userData?.name     || '';
+  document.getElementById('modal-user-email').value    = userData?.email    || '';
+  document.getElementById('modal-user-username').value = userData?.username || '';
+  // PIN ถูกเก็บเป็น hash — ดึงกลับมาแสดงไม่ได้ และไม่จำเป็นต้องกรอกถ้าไม่เปลี่ยน
+  const pinField = document.getElementById('modal-user-pin');
+  if (pinField) {
+    pinField.value = '';
+    pinField.placeholder = isEdit ? 'เว้นว่าง = ใช้ PIN เดิม' : 'ตัวเลข 6-10 หลัก';
+  }
+  const hint = document.getElementById('modal-user-pin-hint');
+  if (hint) {
+    hint.textContent = isEdit
+      ? 'เว้นว่างไว้ถ้าไม่ต้องการเปลี่ยน · ระบบเก็บเป็นค่า hash จึงดู PIN เดิมไม่ได้'
+      : 'ห้ามเลขซ้ำทั้งหมดหรือเรียงกัน · ระบบเก็บเป็นค่า hash เท่านั้น';
+  }
   const roleSelect = document.getElementById('modal-user-role');
   if (roleSelect) roleSelect.value = userData?.role || 'Staff';
+  const statusSelect = document.getElementById('modal-user-status');
+  if (statusSelect) statusSelect.value = userData?.status === 'disabled' ? 'disabled' : 'active';
 }
 
 export function closeUserModal() {
@@ -115,14 +133,25 @@ export function closeUserModal() {
 
 export async function saveUser() {
   const userData = {
-    id:    document.getElementById('modal-user-id')?.value.trim(),
-    name:  document.getElementById('modal-user-name')?.value.trim(),
-    role:  document.getElementById('modal-user-role')?.value,
-    email: document.getElementById('modal-user-email')?.value.trim(),
-    phone: '-',
-    pin:   document.getElementById('modal-user-pin')?.value.trim()
+    id:       document.getElementById('modal-user-id')?.value.trim(),
+    name:     document.getElementById('modal-user-name')?.value.trim(),
+    role:     document.getElementById('modal-user-role')?.value,
+    email:    document.getElementById('modal-user-email')?.value.trim(),
+    username: document.getElementById('modal-user-username')?.value.trim(),
+    status:   document.getElementById('modal-user-status')?.value || 'active',
+    phone:    '-',
+    pin:      document.getElementById('modal-user-pin')?.value.trim()
   };
-  if (!userData.name || !userData.pin) { Swal.fire('ข้อมูลไม่ครบ', 'กรุณากรอกชื่อและ PIN', 'warning'); return; }
+  const isExisting = state.users.some(u => u.id === userData.id);
+
+  if (!userData.name) { Swal.fire('ข้อมูลไม่ครบ', 'กรุณากรอกชื่อ-สกุล', 'warning'); return; }
+  if (!userData.username && !userData.email) {
+    Swal.fire('ข้อมูลไม่ครบ', 'ต้องมีชื่อผู้ใช้หรืออีเมลอย่างน้อยหนึ่งอย่างเพื่อใช้ล็อกอิน', 'warning'); return;
+  }
+  if (!isExisting && !userData.pin) { Swal.fire('ข้อมูลไม่ครบ', 'ผู้ใช้ใหม่ต้องกำหนด PIN', 'warning'); return; }
+  if (userData.pin && !/^\d{6,10}$/.test(userData.pin)) {
+    Swal.fire('PIN ไม่ถูกต้อง', 'PIN ต้องเป็นตัวเลข 6-10 หลัก', 'warning'); return;
+  }
   try {
     await gas.saveUserBackend(userData);
     closeUserModal();

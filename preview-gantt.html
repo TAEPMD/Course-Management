@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>Preview — Gantt scroll frames</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="./src/style.css">
+<style>body{padding:24px;background:#f4f7fb;font-family:Sarabun,sans-serif}</style>
+</head>
+<body>
+
+<h2 style="font-weight:900;margin-bottom:8px">1) Kanban Gantt</h2>
+<div class="kanban-gantt" style="max-width:900px">
+  <div class="gantt-legend">
+    <span><i class="gantt-dot gantt-bar-todo"></i>รอดำเนินการ</span>
+    <span><i class="gantt-dot gantt-bar-doing"></i>กำลังดำเนินการ</span>
+    <span><i class="gantt-dot gantt-bar-done"></i>เสร็จแล้ว</span>
+  </div>
+  <div class="gantt-scroll">
+    <div class="gantt-canvas" id="k-canvas">
+      <div class="gantt-row gantt-header-months">
+        <div class="gantt-label gantt-header-spacer">ไทม์ไลน์งาน</div>
+        <div class="gantt-track" id="k-months"></div>
+      </div>
+      <div class="gantt-row gantt-header-days">
+        <div class="gantt-label gantt-header-spacer"></div>
+        <div class="gantt-track" id="k-days"></div>
+      </div>
+      <div class="gantt-body" id="k-body"></div>
+    </div>
+  </div>
+</div>
+
+<h2 style="font-weight:900;margin:28px 0 8px">2) Annual Plan Gantt</h2>
+<div id="view-annual-plan" style="max-width:900px">
+  <div class="card-modern p-4 sm:p-6 scroll-container">
+    <div class="annual-gantt-scroll">
+      <table class="w-full min-w-[1000px] border-collapse">
+        <thead>
+          <tr class="bg-gray-50">
+            <th class="p-4 border-b w-[300px]">หลักสูตร</th>
+          </tr>
+        </thead>
+        <tbody id="a-body" class="divide-y divide-gray-50"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const dayW = 22, days = 90, trackW = days * dayW;
+document.getElementById('k-canvas').style.width = (240 + trackW) + 'px';
+let mh = '', dh = '';
+for (let m = 0; m < 3; m++) mh += `<span class="gantt-month-cell" style="width:${30*dayW}px">เดือนที่ ${m+1}</span>`;
+for (let d = 0; d < days; d++) dh += `<span class="gantt-day-cell${d%7>4?' weekend':''}${d===20?' today':''}" style="width:${dayW}px">${(d%30)+1}</span>`;
+document.getElementById('k-months').innerHTML = mh;
+document.getElementById('k-days').innerHTML = dh;
+document.querySelectorAll('#k-months, #k-days').forEach(el => el.style.width = trackW + 'px');
+let rows = '';
+const st = ['todo','doing','done','overdue'];
+for (let g = 0; g < 3; g++) {
+  rows += `<div class="gantt-row gantt-group-row"><div class="gantt-label gantt-group-label"><i class="fa-solid fa-layer-group"></i>กลุ่มงานที่ ${g+1}</div><div class="gantt-track" style="width:${trackW}px"></div></div>`;
+  for (let i = 0; i < 6; i++) {
+    const cls = 'gantt-bar-' + st[(g+i)%4], left = (i*7+g*4)*dayW, w = (5+i*2)*dayW;
+    rows += `<div class="gantt-row">
+      <div class="gantt-label gantt-task-label"><span class="gantt-label-dot ${cls}"></span><span class="gantt-label-text">งานตัวอย่างชื่อยาวมากพอสมควร ${g+1}.${i+1}</span></div>
+      <div class="gantt-track" style="width:${trackW}px"><button class="gantt-bar ${cls}" style="left:${left}px;width:${w}px"><span class="gantt-bar-text">${5+i*2} วัน</span></button></div>
+    </div>`;
+  }
+}
+document.getElementById('k-body').innerHTML = rows +
+  `<div class="gantt-today-line" style="left:${240 + 20*dayW}px"><span>วันนี้</span></div>`;
+
+const head = document.querySelector('#view-annual-plan thead tr');
+const months = ['ต.ค.','พ.ย.','ธ.ค.','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.'];
+head.innerHTML += months.map(m => `<th class="p-2 border-b text-[10px]">${m}</th>`).join('');
+let tb = '';
+for (let r = 0; r < 20; r++) {
+  tb += `<tr><td class="p-4 text-sm font-bold">หลักสูตรตัวอย่างที่ ${r+1}</td>` +
+    months.map((_, i) => {
+      const on = i >= r%9 && i <= r%9 + 2;
+      const cap = (i === r%9 ? ' gantt-cap-start' : '') + (i === r%9 + 2 ? ' gantt-cap-end' : '');
+      const st2 = ['gantt-draft','gantt-active','gantt-done'][r%3];
+      return `<td class="px-1 py-3 text-center">${on ? `<div class="gantt-bar ${st2}${cap}"></div>` : ''}</td>`;
+    }).join('') + '</tr>';
+}
+document.getElementById('a-body').innerHTML = tb;
+
+// #scroll → เลื่อนทั้งสองกรอบ เพื่อตรวจว่า header/คอลัมน์ซ้ายค้างจริง
+// #old   → จำลองพฤติกรรมเดิม (เลื่อนได้เฉพาะแนวนอน) เพื่อเทียบ regression
+// #scroll-dark → ตรวจธีมมืด
+if (location.hash === '#old') {
+  const s = document.createElement('style');
+  s.textContent = `.gantt-scroll{overflow-x:auto;overflow-y:visible;max-height:none}
+    .gantt-header-months,.gantt-header-days{position:static}
+    .gantt-header-months .gantt-label,.gantt-header-months .gantt-track,
+    .gantt-header-days .gantt-label,.gantt-header-days .gantt-track{height:auto;min-height:34px}`;
+  document.head.appendChild(s);
+}
+if (location.hash.includes('dark')) {
+  document.body.classList.add('dark');
+  document.documentElement.classList.add('dark');
+}
+if (location.hash.startsWith('#scroll') || location.hash === '#old') {
+  const go = () => document.querySelectorAll('.gantt-scroll, .annual-gantt-scroll').forEach(el => {
+    if (location.hash !== '#old') el.scrollTop = 300;
+    el.scrollLeft = 420;
+  });
+  setTimeout(go, 800);
+}
+</script>
+</body>
+</html>

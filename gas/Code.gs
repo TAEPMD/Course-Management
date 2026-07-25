@@ -1,4 +1,13 @@
 /**
+ * ⛔ เลิกใช้แล้ว (DEPRECATED) — ห้าม deploy ไฟล์นี้
+ *
+ * ไฟล์นี้เป็น backend รุ่นทดลองที่ยังไม่มีมาตรการความปลอดภัยของระบบปัจจุบัน
+ * (ไม่มี rate limit / lockout, ไม่มี session, ไม่ตรวจสิทธิ์ฝั่งเซิร์ฟเวอร์,
+ *  hash PIN แบบ SHA-256 ล้วนซึ่ง brute-force ได้ในไม่กี่วินาที)
+ *
+ * ให้ใช้ Code.gs ที่ root ของโปรเจกต์เท่านั้น — ดูขั้นตอนใน docs/SECURITY.md
+ *
+ * ──────────────────────────────────────────────────────────────
  * Code.gs — Google Apps Script Backend for NIEM Course Management
  *
  * วิธีใช้:

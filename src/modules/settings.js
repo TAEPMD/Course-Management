@@ -21,18 +21,12 @@ export function showSettings() {
 
 export async function saveSettings() {
   const siteName  = document.getElementById('input-site-name')?.value.trim();
-  const adminPin  = document.getElementById('input-admin-pin')?.value.trim();
   const logoFile  = document.getElementById('logo-file-input')?.files?.[0];
 
   if (siteName) {
     await gas.saveSystemSetting('siteName', siteName);
     const nameEls = document.querySelectorAll('#display-site-name, #login-site-name');
     nameEls.forEach(el => { if (el) el.innerText = siteName; });
-  }
-  if (adminPin) {
-    if (!/^\d{5}$/.test(adminPin)) { Swal.fire('ข้อผิดพลาด', 'PIN ต้องเป็นตัวเลข 5 หลัก', 'warning'); return; }
-    await gas.saveSystemSetting('adminPin', adminPin);
-    document.getElementById('input-admin-pin').value = '';
   }
   if (logoFile) await uploadLogo(logoFile);
 
@@ -211,6 +205,23 @@ export function loadDarkMode() {
     document.body.classList.add('dark');
     const icon = document.querySelector('#dark-mode-toggle i');
     if (icon) { icon.classList.remove('fa-moon'); icon.classList.add('fa-sun'); }
+  }
+}
+
+function applyBranding(settings) {
+  if (settings?.siteName) {
+    document.querySelectorAll('#display-site-name, #login-site-name').forEach(el => { el.innerText = settings.siteName; });
+    document.querySelector('title').innerText = settings.siteName + ' - Project Management';
+  }
+  if (settings?.logoUrl) _applyLogo(settings.logoUrl);
+}
+
+/** โหลดเฉพาะชื่อระบบ/โลโก้สำหรับหน้า Login — ไม่ต้องมี session */
+export async function loadPublicBranding() {
+  try {
+    applyBranding(await gas.getPublicSettings());
+  } catch (e) {
+    console.warn('Branding could not be loaded:', e.message);
   }
 }
 

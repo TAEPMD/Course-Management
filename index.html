@@ -14,7 +14,7 @@
             theme: {
                 extend: {
                     fontFamily: {
-                        sans: ['"Plus Jakarta Sans"', 'Sarabun', 'sans-serif'],
+                        sans: ['Sarabun', '"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
                     }
                 }
             }
@@ -51,8 +51,12 @@
 
         <nav class="flex-1 mt-2 space-y-0.5">
             <button onclick="app.showDashboard()" id="nav-dashboard" class="sidebar-item active flex items-center px-4 py-3 space-x-3 text-sm font-semibold">
-                <i class="fa-solid fa-grid-2 text-base w-5 text-center flex-shrink-0"></i>
+                <i class="fa-solid fa-chart-pie text-base w-5 text-center flex-shrink-0"></i>
                 <span class="sidebar-label">ภาพรวมหลัก</span>
+            </button>
+            <button onclick="app.showCourseManagement()" id="nav-courses" class="sidebar-item flex items-center px-4 py-3 space-x-3 text-sm font-semibold text-blue-200">
+                <i class="fa-solid fa-folder-tree text-base w-5 text-center flex-shrink-0"></i>
+                <span class="sidebar-label">บริหารหลักสูตร</span>
             </button>
             <button onclick="app.showAnnualPlan()" id="nav-annual" class="sidebar-item flex items-center px-4 py-3 space-x-3 text-sm font-semibold text-blue-200">
                 <i class="fa-solid fa-calendar-days text-base w-5 text-center flex-shrink-0"></i>
@@ -193,40 +197,75 @@
                         </section>
 
                         <section class="login-auth p-7 sm:p-10 lg:p-12">
-                            <div class="max-w-md mx-auto">
+                            <form id="login-form" class="max-w-md mx-auto" novalidate>
                                 <div class="flex items-center justify-between mb-8">
                                     <div>
                                         <p class="text-[11px] font-black tracking-widest uppercase text-blue-500">Sign In</p>
                                         <h2 id="login-site-name" class="text-3xl font-black text-slate-900 tracking-tight">NIEM Management</h2>
-                                        <p class="text-sm text-slate-500 mt-2">กรอกรหัส PIN 5 หลักเพื่อเข้าสู่ระบบ</p>
+                                        <p class="text-sm text-slate-500 mt-2">เข้าสู่ระบบด้วยชื่อผู้ใช้และรหัส PIN 6 หลัก</p>
                                     </div>
                                     <div class="w-14 h-14 rounded-2xl bg-blue-900 flex items-center justify-center text-white shadow-xl shadow-blue-900/30 overflow-hidden border-2 border-white">
                                         <i id="login-logo-icon" class="fa-solid fa-star-of-life text-2xl"></i>
-                                        <img id="login-logo-img" src="" class="hidden w-full h-full object-cover bg-white">
+                                        <img id="login-logo-img" src="" class="hidden w-full h-full object-cover bg-white" alt="">
                                     </div>
                                 </div>
 
-                                <div class="flex justify-center gap-3 mb-6" id="pin-display">
-                                    <div class="pin-box"></div>
-                                    <div class="pin-box"></div>
-                                    <div class="pin-box"></div>
-                                    <div class="pin-box"></div>
-                                    <div class="pin-box"></div>
-                                </div>
-
                                 <div class="mb-5">
-                                    <input id="login-pin-input" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="5" autocomplete="one-time-code" class="input-modern text-center tracking-[0.5em] text-lg bg-slate-50" placeholder="พิมพ์ PIN 5 หลัก">
+                                    <label for="login-identifier" class="block text-xs font-bold text-slate-500 mb-1.5">ชื่อผู้ใช้ หรือ อีเมล</label>
+                                    <input id="login-identifier" name="username" type="text" autocomplete="username"
+                                           autocapitalize="none" spellcheck="false" required
+                                           class="input-modern bg-slate-50" placeholder="เช่น somchai หรือ somchai@niems.go.th">
                                 </div>
 
-                                <div class="grid grid-cols-3 gap-3 mb-7" id="login-numpad">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="text-xs font-bold text-slate-500">รหัส PIN (6 หลัก)</span>
+                                    <button type="button" id="login-pin-toggle" class="text-[11px] font-bold text-blue-600 hover:text-blue-800"
+                                            aria-pressed="false">แสดง PIN</button>
+                                </div>
+
+                                <div class="flex justify-center gap-3 mb-4" id="pin-display" role="img" aria-label="ช่องกรอกรหัส PIN 6 หลัก">
+                                    <div class="pin-box"></div>
+                                    <div class="pin-box"></div>
+                                    <div class="pin-box"></div>
+                                    <div class="pin-box"></div>
+                                    <div class="pin-box"></div>
+                                    <div class="pin-box"></div>
+                                </div>
+                                <p id="pin-status" class="sr-only" aria-live="polite"></p>
+
+                                <div class="mb-4">
+                                    <label for="login-pin-input" class="sr-only">รหัส PIN</label>
+                                    <input id="login-pin-input" name="pin" type="password" inputmode="numeric" pattern="[0-9]*"
+                                           maxlength="6" autocomplete="current-password" required
+                                           class="input-modern text-center tracking-[0.5em] text-lg bg-slate-50" placeholder="พิมพ์ PIN 6 หลัก">
+                                </div>
+
+                                <p class="text-[11px] text-slate-400 mb-1">
+                                    ถ้ายังใช้ PIN เดิม 5 หลัก: กรอกแล้วกดปุ่ม “เข้าสู่ระบบ” ระบบจะให้ตั้ง PIN 6 หลักใหม่
+                                </p>
+
+                                <p id="login-error" class="hidden login-error-box" role="alert" aria-live="assertive"></p>
+                                <p id="login-lock" class="hidden login-lock-box" role="status" aria-live="polite"></p>
+
+                                <div class="grid grid-cols-3 gap-3 mb-5 mt-5" id="login-numpad">
                                     <!-- Generated by JS -->
                                 </div>
 
-                                <div id="login-loader" class="hidden text-center">
+                                <button type="submit" id="login-submit"
+                                        class="w-full grad-primary text-white rounded-2xl py-3.5 font-bold text-sm shadow-lg shadow-blue-900/25 hover:scale-[1.01] active:scale-95 transition-transform">
+                                    <i class="fa-solid fa-right-to-bracket mr-2" aria-hidden="true"></i>เข้าสู่ระบบ
+                                </button>
+
+                                <p class="mt-4 text-[11px] text-slate-400 leading-relaxed">
+                                    <i class="fa-solid fa-shield-halved mr-1" aria-hidden="true"></i>
+                                    ระบบจะล็อกชั่วคราวเมื่อกรอกผิดหลายครั้ง และออกจากระบบอัตโนมัติเมื่อไม่มีการใช้งาน 30 นาที
+                                </p>
+
+                                <div id="login-loader" class="hidden text-center mt-4">
                                     <div class="loader-ring mx-auto mb-2"></div>
                                     <p class="text-xs text-blue-600 font-bold uppercase tracking-widest">Verifying...</p>
                                 </div>
-                            </div>
+                            </form>
                         </section>
                     </div>
                 </div>
@@ -239,9 +278,14 @@
                 <div class="absolute bottom-20 left-10 w-48 h-48 bg-indigo-400/10 rounded-full blur-3xl animate-float pointer-events-none" style="animation-delay: -2s"></div>
 
                 <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
-                    <div>
+                    <div class="flex items-start gap-3">
+                        <div class="dashboard-title-icon w-11 h-11 rounded-2xl grad-primary text-white flex items-center justify-center shadow-lg shadow-blue-900/20 flex-shrink-0">
+                            <i class="fa-solid fa-chart-pie text-lg"></i>
+                        </div>
+                        <div>
                         <h1 class="text-2xl md:text-3xl font-bold text-gray-900 tracking-tight">Course Dashboard</h1>
                         <p class="text-gray-500 text-sm font-medium">บริหารหลักสูตร แผนอบรม งบประมาณ และความพร้อมก่อนเปิดอบรม</p>
+                        </div>
                     </div>
                     <div class="flex items-center">
                         <button onclick="app.createNewProject()" class="grad-primary hover:shadow-blue-900/40 text-white w-full md:w-auto px-6 py-3.5 rounded-2xl font-bold text-sm shadow-xl transition-all hover:scale-105 active:scale-95 flex items-center justify-center group">
@@ -378,6 +422,72 @@
                 </div>
             </div>
 
+            <!-- View: Course Management -->
+            <div id="view-course-management" class="hidden p-4 sm:p-6 max-w-7xl mx-auto space-y-5 md:space-y-6 animate-fade">
+                <div class="course-management-head">
+                    <div class="course-management-title">
+                        <span><i class="fa-solid fa-folder-tree"></i></span>
+                        <div>
+                            <h1>บริหารหลักสูตร</h1>
+                            <p>รวบรวมหลักสูตรทั้งหมด ค้นหา กรองสถานะ ตรวจสุขภาพ และเปิดจัดการข้อมูลหลักสูตรจากหน้าเดียว</p>
+                        </div>
+                    </div>
+                    <button onclick="app.createNewProject()" class="course-management-add">
+                        <i class="fa-solid fa-plus"></i>
+                        <span>เพิ่มหลักสูตรใหม่</span>
+                    </button>
+                </div>
+
+                <div id="course-management-insights" class="course-management-insights"></div>
+
+                <section class="course-management-panel">
+                    <div class="course-management-toolbar">
+                        <label class="course-management-search">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="search" id="course-management-search" placeholder="ค้นหาชื่อหลักสูตร รหัส หมวดหมู่ ผู้จัดการ หรือปีงบประมาณ" oninput="app.setCourseManagementFilter('q', this.value)">
+                        </label>
+                        <select id="course-management-status" onchange="app.setCourseManagementFilter('status', this.value)" aria-label="กรองสถานะหลักสูตร">
+                            <option value="all">ทุกสถานะ</option>
+                            <option value="ร่าง">ร่าง</option>
+                            <option value="ดำเนินการ">ดำเนินการ</option>
+                            <option value="ปิดโครงการ">ปิดโครงการ</option>
+                        </select>
+                        <select id="course-management-health" onchange="app.setCourseManagementFilter('health', this.value)" aria-label="กรองสุขภาพหลักสูตร">
+                            <option value="all">ทุกสุขภาพ</option>
+                            <option value="on-track">ปกติ</option>
+                            <option value="at-risk">มีความเสี่ยง</option>
+                            <option value="off-track">ต้องเร่งแก้</option>
+                        </select>
+                        <select id="course-management-year" onchange="app.setCourseManagementFilter('year', this.value)" aria-label="กรองปีงบประมาณ">
+                            <option value="all">ทุกปีงบประมาณ</option>
+                        </select>
+                        <button type="button" class="course-management-reset" onclick="app.resetCourseManagementFilters()">
+                            <i class="fa-solid fa-rotate-left"></i>
+                            <span>ล้างตัวกรอง</span>
+                        </button>
+                    </div>
+
+                    <div id="course-management-card-list" class="course-management-card-list md:hidden"></div>
+
+                    <div class="course-management-table-wrap hidden md:block">
+                        <table class="course-management-table">
+                            <thead>
+                                <tr>
+                                    <th>หลักสูตร</th>
+                                    <th class="text-center">สถานะ</th>
+                                    <th class="text-center">สุขภาพ</th>
+                                    <th class="text-center">ความพร้อม</th>
+                                    <th class="text-center">งาน</th>
+                                    <th class="text-right">งบประมาณ</th>
+                                    <th class="text-center">จัดการ</th>
+                                </tr>
+                            </thead>
+                            <tbody id="course-management-table-body"></tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
             <!-- View: Monthly Overview -->
             <div id="view-monthly-plan" class="hidden p-4 sm:p-6 max-w-7xl mx-auto space-y-6 md:space-y-8 animate-fade">
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -430,6 +540,7 @@
                         <span class="inline-flex items-center gap-1.5"><span class="gantt-legend-swatch gantt-done"></span>ปิดโครงการ</span>
                         <span class="inline-flex items-center gap-1.5"><span class="gantt-legend-swatch gantt-now-swatch"></span>เดือนปัจจุบัน</span>
                     </div>
+                    <div class="annual-gantt-scroll">
                     <table class="w-full min-w-[1000px] border-collapse">
                         <thead>
                             <tr class="bg-gray-50" id="annual-timeline-head">
@@ -452,6 +563,7 @@
                             <!-- JS -->
                         </tbody>
                     </table>
+                    </div>
                 </div>
             </div>
 
@@ -548,12 +660,23 @@
                         <h3 class="text-lg font-bold text-gray-800">ความปลอดภัย (Security)</h3>
                     </div>
                     <div>
-                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Admin PIN (สำหรับเข้าสู่ระบบ)</label>
-                        <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
-                            <input type="password" id="input-admin-pin" class="input-modern sm:max-w-[200px]" maxlength="5" placeholder="ตัวเลข 5 หลัก">
-                            <button onclick="app.updateAdminPin()" class="px-6 py-2.5 bg-red-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-red-600/20 shrink-0">เปลี่ยน PIN</button>
-                        </div>
-                        <p class="text-[10px] text-gray-400 mt-2 italic">* PIN ปัจจุบันคือสิ่งที่ใช้ล็อกอินเข้าระบบ Admin</p>
+                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">รหัส PIN ของบัญชีที่ใช้งานอยู่</label>
+                        <button onclick="app.openPinChangeModal(false)" class="px-6 py-2.5 bg-red-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-red-600/20">
+                            <i class="fa-solid fa-key mr-2" aria-hidden="true"></i>เปลี่ยน PIN ของฉัน
+                        </button>
+                        <p class="text-[10px] text-gray-400 mt-2 italic">
+                            * ต้องยืนยัน PIN ปัจจุบันก่อนตั้งใหม่ · PIN ถูกเก็บเป็นค่า hash พร้อม salt ไม่มีใครดูย้อนหลังได้
+                            · PIN ของผู้ใช้รายอื่นตั้งใหม่ได้ที่หน้า “จัดการผู้ใช้”
+                        </p>
+                    </div>
+                    <div class="rounded-2xl bg-slate-50 border border-slate-200 p-4 text-[11px] text-slate-500 leading-relaxed">
+                        <p class="font-black text-slate-700 mb-1.5">มาตรการที่ระบบบังคับใช้</p>
+                        <ul class="space-y-1 list-disc pl-4">
+                            <li>ล็อกบัญชีชั่วคราวเมื่อกรอก PIN ผิดครบ 5 ครั้ง (นานขึ้นแบบทวีคูณ สูงสุด 30 นาที)</li>
+                            <li>Session หมดอายุเมื่อไม่มีการใช้งาน 30 นาที และหมดอายุถาวรใน 8 ชั่วโมง</li>
+                            <li>Session token เก็บใน httpOnly cookie — สคริปต์ในหน้าเว็บอ่านไม่ได้</li>
+                            <li>ตรวจสิทธิ์ทุกคำสั่งที่ฝั่งเซิร์ฟเวอร์ และบันทึก log การเข้าสู่ระบบไว้ในชีต AuthLog</li>
+                        </ul>
                     </div>
                 </div>
 
@@ -672,7 +795,8 @@
 
                     <div class="p-4 sm:p-8">
                         <div id="tab-info" class="tab-content animate-fade">
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-5 md:gap-8">
+                            <div id="project-info-visual-panel" class="mb-6"></div>
+                            <div class="project-info-form-grid grid grid-cols-1 md:grid-cols-2 gap-5 md:gap-8">
                                 <div>
                                     <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">ชื่อหลักสูตร</label>
                                     <input type="text" id="input-proj-name" class="input-modern">
@@ -833,7 +957,7 @@
                                     <span class="text-rose-300 text-xs">บาท</span>
                                 </div>
                                 <div class="p-5 bg-violet-50 rounded-[20px] border border-violet-100">
-                                    <label class="block text-[10px] font-bold text-violet-400 uppercase tracking-widest mb-1">รอเบิกจ่าย</label>
+                                    <label class="block text-[10px] font-bold text-violet-400 uppercase tracking-widest mb-1">วางบิล/รอเบิกจ่าย</label>
                                     <p id="budget-claim-queue" class="text-xl font-black text-violet-700">0</p>
                                     <span class="text-violet-300 text-xs">บาท</span>
                                 </div>
@@ -848,6 +972,8 @@
                                     <span class="text-emerald-300 text-xs">บาท</span>
                                 </div>
                             </div>
+
+                            <div id="budget-visual-panel"></div>
 
                             <!-- Progress Bar -->
                             <div class="bg-white p-4 rounded-[20px] border border-gray-100">
@@ -869,24 +995,31 @@
                                     <div id="budget-alert-list" class="space-y-2"></div>
                                 </div>
                                 <div class="bg-white p-5 rounded-[20px] border border-gray-100">
-                                    <h4 class="font-bold text-gray-800 mb-3">แนวทางตรวจสอบก่อนเบิก</h4>
-                                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                                    <h4 class="font-bold text-gray-800 mb-3">ขั้นตอนเบิกจ่าย</h4>
+                                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                                         <div class="rounded-2xl bg-slate-50 p-3">
-                                            <p class="font-black text-slate-700">1. ตรวจอนุมัติ</p>
-                                            <p class="text-gray-400 mt-1">เปลี่ยนสถานะเป็นอนุมัติเมื่อคำขอผ่านการตรวจแล้ว</p>
+                                            <p class="font-black text-slate-700">1. ขอ/อนุมัติ</p>
+                                            <p class="text-gray-400 mt-1">อนุมัติคำขอ แล้วบันทึกก่อหนี้เมื่อสั่งซื้อ/ทำสัญญา</p>
                                         </div>
                                         <div class="rounded-2xl bg-slate-50 p-3">
-                                            <p class="font-black text-slate-700">2. แนบเลขเอกสาร</p>
-                                            <p class="text-gray-400 mt-1">กรอกเลขที่เอกสาร/ใบสำคัญก่อนตั้งเบิก</p>
+                                            <p class="font-black text-slate-700">2. วางบิล</p>
+                                            <p class="text-gray-400 mt-1">รับใบแจ้งหนี้/ใบวางบิล กรอกเลขที่เอกสารและวันครบกำหนด</p>
                                         </div>
                                         <div class="rounded-2xl bg-slate-50 p-3">
-                                            <p class="font-black text-slate-700">3. ปิดรายการ</p>
-                                            <p class="text-gray-400 mt-1">เปลี่ยนเป็นเบิกจ่ายแล้วเมื่อจ่ายจริงเสร็จ</p>
+                                            <p class="font-black text-slate-700">3. ตั้งเบิก</p>
+                                            <p class="text-gray-400 mt-1">ส่งตั้งเบิกพร้อมเอกสารครบ ระบบเตือนถ้าขาดเลขเอกสาร</p>
+                                        </div>
+                                        <div class="rounded-2xl bg-slate-50 p-3">
+                                            <p class="font-black text-slate-700">4. จ่าย + หลักฐาน</p>
+                                            <p class="text-gray-400 mt-1">บันทึกจ่ายจริง แนบสลิป/ใบเสร็จเป็นหลักฐานปิดรายการ</p>
                                         </div>
                                     </div>
                                     <p class="mt-3 text-[11px] text-gray-400">ยอดไม่อนุมัติ: <span id="budget-rejected-expense" class="font-black">0</span> บาท</p>
                                 </div>
                             </div>
+
+                            <!-- Billing Register (rendered by src/modules/budget.js) -->
+                            <div id="budget-billing-panel"></div>
 
                             <!-- Ledger Table -->
                             <div class="bg-white rounded-[20px] border border-gray-100 overflow-hidden">
@@ -895,6 +1028,7 @@
                                     <div class="flex items-center gap-2">
                                         <button onclick="app.exportBudgetReport()" class="px-4 py-2 bg-white border border-gray-200 text-gray-600 text-xs font-bold rounded-xl hover:bg-gray-50 transition"><i class="fa-solid fa-file-export mr-1"></i>ส่งออก CSV</button>
                                         <button onclick="app.addBudgetEntry()" class="px-4 py-2 bg-blue-900 text-white text-xs font-bold rounded-xl hover:scale-105 transition"><i class="fa-solid fa-plus mr-1"></i>เพิ่มรายการ</button>
+                                        <button onclick="app.saveBudgetToCloud()" class="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:scale-105 transition"><i class="fa-solid fa-cloud-arrow-up mr-1"></i>บันทึกงบประมาณ</button>
                                     </div>
                                 </div>
                                 <div class="overflow-x-auto">
@@ -908,7 +1042,7 @@
                                                 <th class="px-4 py-3 text-xs font-bold text-gray-400 uppercase">สถานะ</th>
                                                 <th class="px-4 py-3 text-xs font-bold text-gray-400 uppercase">เอกสาร/กำหนด</th>
                                                 <th class="px-4 py-3 text-xs font-bold text-gray-400 uppercase text-right">จำนวนเงิน (บาท)</th>
-                                                <th class="px-4 py-3 text-xs font-bold text-gray-400 uppercase text-center">ลบ</th>
+                                                <th class="px-4 py-3 text-xs font-bold text-gray-400 uppercase text-center">จัดการ</th>
                                             </tr>
                                         </thead>
                                         <tbody id="budget-ledger-body" class="divide-y divide-gray-50"></tbody>
@@ -922,8 +1056,8 @@
                             <!-- Header -->
                             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                                 <div>
-                                    <h4 class="font-bold text-gray-800 text-lg">ติดตามงาน (Kanban)</h4>
-                                    <p class="text-xs text-gray-400 mt-0.5">ลากการ์ดข้ามคอลัมน์เพื่อเปลี่ยนสถานะงาน</p>
+                                    <h4 class="font-bold text-gray-800 text-lg">ติดตามงาน (Kanban / Gantt)</h4>
+                                    <p class="text-xs text-gray-400 mt-0.5">สลับมุมมองบอร์ดเพื่อจัดการสถานะ หรือมุมมอง Gantt เพื่อดูไทม์ไลน์และงานที่เลื่อนกำหนด</p>
                                 </div>
                                 <button onclick="app.addKanbanTask('todo')" class="flex items-center gap-2 px-5 py-2.5 grad-primary text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-900/20 hover:scale-105 transition-transform">
                                     <i class="fa-solid fa-plus"></i> เพิ่มงานใหม่
@@ -1006,8 +1140,12 @@
         <!-- Mobile Bottom Nav -->
         <nav class="mobile-nav fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-gray-100 dark:border-slate-700 flex md:hidden items-stretch z-40 hidden shadow-[0_-2px_12px_rgba(0,0,0,0.06)]" style="padding-bottom:env(safe-area-inset-bottom)">
             <button onclick="app.showDashboard()" id="m-nav-dashboard" class="flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-blue-900 dark:text-blue-400 min-h-[56px]">
-                <i class="fa-solid fa-grid-2 text-xl"></i>
+                <i class="fa-solid fa-chart-pie text-xl"></i>
                 <span class="text-[9px] font-bold tracking-tight">ภาพรวม</span>
+            </button>
+            <button onclick="app.showCourseManagement()" id="m-nav-courses" class="flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-gray-400 dark:text-slate-500 min-h-[56px]">
+                <i class="fa-solid fa-folder-tree text-xl"></i>
+                <span class="text-[9px] font-bold tracking-tight">หลักสูตร</span>
             </button>
             <button onclick="app.showAnnualPlan()" id="m-nav-annual" class="flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-gray-400 dark:text-slate-500 min-h-[56px]">
                 <i class="fa-solid fa-calendar-days text-xl"></i>
@@ -1048,6 +1186,12 @@
                         <input type="email" id="modal-user-email" class="input-modern" placeholder="email@example.com">
                     </div>
                     <div>
+                        <label class="block text-xs font-bold text-gray-400 mb-1">ชื่อผู้ใช้ (ใช้ล็อกอิน)</label>
+                        <input type="text" id="modal-user-username" class="input-modern" placeholder="a-z 0-9 . _ - (3-32 ตัว)"
+                               autocapitalize="none" spellcheck="false">
+                        <p class="text-[10px] text-gray-400 mt-1">เว้นว่างได้ — ผู้ใช้จะล็อกอินด้วยอีเมลแทน</p>
+                    </div>
+                    <div>
                         <label class="block text-xs font-bold text-gray-400 mb-1">สิทธิ์การใช้งาน (Role)</label>
                         <select id="modal-user-role" class="input-modern bg-white">
                             <option value="Admin">ผู้ดูแลระบบ (Admin)</option>
@@ -1057,8 +1201,19 @@
                         </select>
                     </div>
                     <div>
-                        <label class="block text-xs font-bold text-gray-400 mb-1">PIN 5 หลัก (ใช้ล็อกอิน)</label>
-                        <input type="password" id="modal-user-pin" class="input-modern" placeholder="เช่น 12345" maxlength="5">
+                        <label class="block text-xs font-bold text-gray-400 mb-1">สถานะบัญชี</label>
+                        <select id="modal-user-status" class="input-modern bg-white">
+                            <option value="active">ใช้งานได้ (Active)</option>
+                            <option value="disabled">ระงับการใช้งาน (Disabled)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 mb-1">PIN 6 หลัก (ใช้ล็อกอิน)</label>
+                        <input type="password" id="modal-user-pin" class="input-modern" placeholder="ตัวเลข 6-10 หลัก"
+                               inputmode="numeric" maxlength="10" autocomplete="new-password">
+                        <p id="modal-user-pin-hint" class="text-[10px] text-gray-400 mt-1">
+                            ห้ามเลขซ้ำทั้งหมดหรือเรียงกัน — ระบบเก็บเป็นค่า hash เท่านั้น ไม่สามารถดู PIN เดิมได้
+                        </p>
                     </div>
                 </div>
                 <div class="p-6 pt-0 flex justify-end space-x-3">
@@ -1068,6 +1223,57 @@
             </div>
         </div>
     </main>
+
+    <!-- Change PIN Modal -->
+    <div id="pin-change-modal" class="hidden fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-gray-900/60 backdrop-blur-sm animate-fade"
+         role="dialog" aria-modal="true" aria-labelledby="pin-change-title">
+        <div class="bg-white rounded-t-[24px] sm:rounded-[24px] shadow-2xl w-full max-w-md overflow-y-auto max-h-[92vh] animate-scale-in">
+            <div class="px-6 py-4 border-b border-gray-100 flex items-center gap-3 bg-gray-50/50">
+                <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center">
+                    <i class="fa-solid fa-key" aria-hidden="true"></i>
+                </div>
+                <h3 id="pin-change-title" class="font-bold text-gray-800 text-lg">ตั้งรหัส PIN ใหม่</h3>
+            </div>
+            <div class="p-6 space-y-4">
+                <p id="pin-change-forced" class="hidden text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3">
+                    <i class="fa-solid fa-triangle-exclamation mr-1" aria-hidden="true"></i>
+                    PIN ปัจจุบันไม่ผ่านนโยบายความปลอดภัยใหม่ กรุณาตั้ง PIN 6 หลักก่อนเข้าใช้งาน
+                </p>
+                <div id="pin-change-current-wrap">
+                    <label for="pin-change-current" class="block text-xs font-bold text-gray-400 mb-1">PIN ปัจจุบัน</label>
+                    <input type="password" id="pin-change-current" class="input-modern" inputmode="numeric"
+                           maxlength="10" autocomplete="current-password">
+                </div>
+                <div>
+                    <label for="pin-change-new" class="block text-xs font-bold text-gray-400 mb-1">PIN ใหม่ (6-10 หลัก)</label>
+                    <input type="password" id="pin-change-new" class="input-modern" inputmode="numeric"
+                           maxlength="10" autocomplete="new-password">
+                </div>
+                <div>
+                    <label for="pin-change-confirm" class="block text-xs font-bold text-gray-400 mb-1">ยืนยัน PIN ใหม่</label>
+                    <input type="password" id="pin-change-confirm" class="input-modern" inputmode="numeric"
+                           maxlength="10" autocomplete="new-password">
+                </div>
+                <ul class="text-[11px] text-gray-400 space-y-1 pl-4 list-disc">
+                    <li>ห้ามเป็นเลขซ้ำกันทั้งหมด เช่น 111111</li>
+                    <li>ห้ามเป็นเลขเรียงกัน เช่น 123456</li>
+                    <li>ห้ามซ้ำกับ PIN เดิม</li>
+                </ul>
+                <p id="pin-change-error" class="hidden login-error-box" role="alert" aria-live="assertive"></p>
+            </div>
+            <div class="p-6 pt-0 flex justify-end gap-3">
+                <button type="button" id="pin-change-cancel" onclick="app.closePinChangeModal()"
+                        class="px-5 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-700">ยกเลิก</button>
+                <button type="button" id="pin-change-submit" onclick="app.submitPinChange()"
+                        class="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition">
+                    บันทึก PIN ใหม่
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Budget Entry Detail Modal (rendered by src/modules/budget.js) -->
+    <div id="budget-entry-modal" class="hidden"></div>
 
     <script type="module" src="/src/main.js"></script>
 </body>

@@ -4,25 +4,30 @@
  */
 
 import { state } from './modules/state.js';
-import { checkSession, logout, renderNumpad, handlePinInput, syncPinInputField } from './modules/auth.js';
+import { checkSession, logout, renderNumpad, handlePinInput, syncPinInputField, updatePinDisplay,
+         openPinChangeModal, closePinChangeModal, submitPinChange, PIN_LENGTH } from './modules/auth.js';
 import { checkConnection } from './gas.js';
-import { showDashboard, showAnnualPlan, showMonthlyPlan, showWeeklyPlan,
+import { showDashboard, showCourseManagement, showAnnualPlan, showMonthlyPlan, showWeeklyPlan,
          createNewProject, saveProjectInfo, openProject, switchTab, uploadDocument, downloadDocument, deleteDocument,
          deleteProject,
-         renderAnnualTimeline, renderMonthlyPlan, renderWeeklyPlan, changeWeek, refreshProjectIndicators, filterProjects,
-         addKanbanTask, editKanbanTask, deleteKanbanTask, onKanbanDragStart, onKanbanDragEnd, onKanbanDrop } from './modules/projects.js';
-import { showUsers, showUserModal, closeUserModal, saveUser } from './modules/users.js';
+         renderAnnualTimeline, renderMonthlyPlan, changeWeek, refreshProjectIndicators, filterProjects,
+         setCourseManagementFilter, resetCourseManagementFilters,
+         addKanbanTask, editKanbanTask, deleteKanbanTask, duplicateKanbanTask, moveKanbanTask, toggleKanbanSubtask,
+         addKanbanSubtaskRow, removeKanbanSubtaskRow,
+         setKanbanFilter, resetKanbanFilters, onKanbanCardClick, setKanbanView,
+         onKanbanDragStart, onKanbanDragOver, onKanbanDragEnd, onKanbanDrop } from './modules/projects.js';
+import { showUsers, showUserModal, saveUser } from './modules/users.js';
 import { showSettings, saveSettings, savePermissions, simulateRole,
-         toggleDarkMode, loadDarkMode, loadSettings, loadVisualControls, toggleVisualControlPanel, setVisualMode, previewLogo, uploadLogo,
+         toggleDarkMode, loadDarkMode, loadPublicBranding, loadVisualControls, toggleVisualControlPanel, setVisualMode, previewLogo, uploadLogo,
          addMasterItem, saveMasterDataToCloud } from './modules/settings.js';
-import { addBudgetEntry, exportBudgetReport, renderBudgetSummary } from './modules/budget.js';
+import { addBudgetEntry, exportBudgetReport, renderBudgetSummary, saveBudgetToCloud, openBudgetEntry, openBillIntake } from './modules/budget.js';
 import { addScheduleSession } from './modules/schedule.js';
-import { renderMasterDataLists } from './modules/masterData.js';
 
 // ── Global `app` object exposed for HTML onclick="app.xxx()" compatibility ──
 window.app = {
   // Navigation
   showDashboard,
+  showCourseManagement,
   showAnnualPlan,
   showMonthlyPlan,
   showWeeklyPlan,
@@ -31,7 +36,9 @@ window.app = {
 
   // Auth
   logout,
-  handlePinInput: key => handlePinInput(key),
+  openPinChangeModal,
+  closePinChangeModal,
+  submitPinChange,
 
   // Projects
   createNewProject,
@@ -44,19 +51,17 @@ window.app = {
   deleteDocument,
   renderAnnualTimeline,
   renderMonthlyPlan,
-  renderWeeklyPlan,
   changeWeek,
   refreshProjectIndicators,
   filterProjects,
+  setCourseManagementFilter,
+  resetCourseManagementFilters,
 
   // Users
   openUserModal: () => showUserModal(null),
-  showUserModal: () => showUserModal(null),
-  closeUserModal,
   saveUser,
 
   // Settings
-  saveSettings,
   savePermissions,
   simulateRole,
   toggleDarkMode,
@@ -65,20 +70,31 @@ window.app = {
   previewLogo,
   uploadLogo,
   saveGeneralSettings: saveSettings,
-  updateAdminPin: saveSettings,
   addMasterItem,
   saveMasterDataToCloud,
 
   // Budget
   addBudgetEntry,
   exportBudgetReport,
-  renderBudgetSummary,
+  saveBudgetToCloud,
+  openBudgetEntry,
+  openBillIntake,
 
   // Kanban
   addKanbanTask,
   editKanbanTask,
   deleteKanbanTask,
+  duplicateKanbanTask,
+  moveKanbanTask,
+  toggleKanbanSubtask,
+  addKanbanSubtaskRow,
+  removeKanbanSubtaskRow,
+  onKanbanCardClick,
+  setKanbanFilter,
+  resetKanbanFilters,
+  setKanbanView,
   onKanbanDragStart,
+  onKanbanDragOver,
   onKanbanDragEnd,
   onKanbanDrop,
 
@@ -107,22 +123,40 @@ document.addEventListener('DOMContentLoaded', () => {
   renderNumpad();
   loadDarkMode();
   loadVisualControls();
-  loadSettings();
+  loadPublicBranding();
   checkSession();
+
+  // Login form: ส่งด้วยปุ่ม/Enter ก็ได้ (numpad จะยิงเองเมื่อครบ 6 หลัก)
+  document.getElementById('login-form')?.addEventListener('submit', e => {
+    e.preventDefault();
+    import('./modules/auth.js').then(m => m.processLogin());
+  });
+
+  // ปุ่มแสดง/ซ่อน PIN
+  const pinToggle = document.getElementById('login-pin-toggle');
+  pinToggle?.addEventListener('click', () => {
+    const field = document.getElementById('login-pin-input');
+    if (!field) return;
+    const show = field.type === 'password';
+    field.type = show ? 'text' : 'password';
+    pinToggle.textContent = show ? 'ซ่อน PIN' : 'แสดง PIN';
+    pinToggle.setAttribute('aria-pressed', String(show));
+  });
 
   // PIN input field sync
   const pinInput = document.getElementById('login-pin-input');
   if (pinInput) {
     pinInput.addEventListener('input', e => {
-      const sanitized = e.target.value.replace(/\D/g, '').slice(0, 5);
+      const sanitized = e.target.value.replace(/\D/g, '').slice(0, PIN_LENGTH);
       state.pinInput = sanitized;
       syncPinInputField();
-      if (sanitized.length === 5) {
+      updatePinDisplay();
+      if (sanitized.length === PIN_LENGTH) {
         import('./modules/auth.js').then(m => m.processLogin());
       }
     });
-    pinInput.focus();
   }
+  document.getElementById('login-identifier')?.focus();
 
   // ── Mobile sidebar drawer ──
   const sidebar = document.getElementById('sidebar');
@@ -186,6 +220,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Patched into app navigation calls via MutationObserver on header title
   const mobileNavMap = {
     'nav-dashboard': 'm-nav-dashboard',
+    'nav-courses':   'm-nav-courses',
     'nav-annual':    'm-nav-annual',
     'nav-monthly':   'm-nav-monthly',
     'nav-weekly':    'm-nav-weekly',

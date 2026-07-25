@@ -1,9 +1,19 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import https from 'node:https';
 import http  from 'node:http';
+import {
+  buildGasPayload,
+  csrfError,
+  loginRateLimited,
+  securityHeaders,
+  sessionCookie,
+} from './api/_authProxy.js';
 
 /**
  * Vite dev middleware: /api/gas → VITE_GAS_WEB_APP_URL
+ *
+ * ใช้ตัวช่วยชุดเดียวกับ api/gas.js (cookie session, rate limit, CSRF, allowlist)
+ * เพื่อให้ dev ทดสอบเส้นทางความปลอดภัยได้เหมือน production
  *
  * GAS Web App ส่ง HTTP 302 redirect เสมอ (แม้แต่ POST)
  * ใช้ Node.js HTTP โดยตรงเพื่อ follow redirect ได้อย่างถูกต้อง
@@ -13,32 +23,51 @@ function gasProxyPlugin() {
     name: 'gas-proxy',
     configureServer(server) {
       server.middlewares.use('/api/gas', (req, res) => {
-        const GAS_URL = process.env.VITE_GAS_WEB_APP_URL?.trim();
+        const reply = (status, payload, extraHeaders = {}) => {
+          res.writeHead(status, { ...securityHeaders, ...extraHeaders });
+          res.end(JSON.stringify(payload));
+        };
 
+        const GAS_URL = process.env.VITE_GAS_WEB_APP_URL?.trim();
         if (!GAS_URL) {
-          res.writeHead(503, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({
-            ok: false,
-            error: 'VITE_GAS_WEB_APP_URL ยังไม่ได้ตั้งค่าใน .env',
-          }));
+          return reply(503, { ok: false, error: 'VITE_GAS_WEB_APP_URL ยังไม่ได้ตั้งค่าใน .env' });
         }
+        if (req.method !== 'POST') return reply(405, { ok: false, error: 'Method not allowed' });
+        if (csrfError(req))        return reply(403, { ok: false, error: 'Request rejected' });
 
         const chunks = [];
         req.on('data', c => chunks.push(c));
         req.on('end', () => {
-          const body = Buffer.concat(chunks).toString();
-          gasRequest(GAS_URL, body)
+          const built = buildGasPayload(req, Buffer.concat(chunks).toString());
+          if (built.error) return reply(built.status, { ok: false, error: built.error });
+
+          if (built.action === 'login') {
+            const retryAfter = loginRateLimited(req);
+            if (retryAfter) {
+              return reply(429, { ok: true, result: { status: 'locked', retryAfter } });
+            }
+          }
+
+          gasRequest(GAS_URL, JSON.stringify(built.payload))
             .then(({ status, data }) => {
-              res.writeHead(status, {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
-              });
-              res.end(data);
+              let parsed;
+              try { parsed = JSON.parse(data); }
+              catch { return reply(502, { ok: false, error: 'Backend ตอบกลับไม่ถูกต้อง' }); }
+
+              const cookies = [];
+              if (built.action === 'login' && parsed?.ok && parsed.result?.token) {
+                cookies.push(sessionCookie(parsed.result.token, { secure: false }));
+                delete parsed.result.token;
+              }
+              if (built.action === 'logout') cookies.push(sessionCookie('', { secure: false }));
+              if (parsed?.ok === false && /Unauthorized|expired|Please login/i.test(String(parsed.error || ''))) {
+                cookies.push(sessionCookie('', { secure: false }));
+              }
+              reply(status === 200 ? 200 : status, parsed, cookies.length ? { 'Set-Cookie': cookies } : {});
             })
             .catch(err => {
               console.error('\n[GAS Proxy] ❌ Error:', err.message, '\n');
-              res.writeHead(502, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ ok: false, error: `Proxy error: ${err.message}` }));
+              reply(502, { ok: false, error: 'ติดต่อ backend ไม่สำเร็จ' });
             });
         });
       });
@@ -119,13 +148,17 @@ function gasRequest(url, body, depth = 0) {
   });
 }
 
-export default defineConfig({
-  plugins: [gasProxyPlugin()],
-  build: {
-    outDir: 'dist',
-  },
-  server: {
-    port: 3000,
-    open: true,
-  },
+export default defineConfig(({ mode }) => {
+  // Vite ไม่ได้ใส่ค่าจาก .env ลง process.env ให้เอง — dev proxy อ่านจากตรงนี้
+  Object.assign(process.env, loadEnv(mode, process.cwd(), ''));
+  return {
+    plugins: [gasProxyPlugin()],
+    build: {
+      outDir: 'dist',
+    },
+    server: {
+      port: 3000,
+      open: true,
+    },
+  };
 });

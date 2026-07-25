@@ -7,13 +7,34 @@
 // ==========================================
 
 // --- Constants ---
-const ADMIN_PIN_HASH = "01a051099cc994df4d11037819699796af703f6532b9c564effc5c90fb89d265";
 const CACHE_TTL = 300;       // 5 minutes
-const API_SESSION_TTL = 21600; // 6 hours
+
+// --- Security policy ---
+const SESSION_IDLE_TTL     = 1800;   // 30 นาทีไม่มีการใช้งาน → session หมดอายุ
+const SESSION_ABSOLUTE_TTL = 28800;  // 8 ชั่วโมงนับจาก login → หมดอายุเสมอ
+const PIN_MIN_LENGTH       = 6;      // นโยบายใหม่: PIN อย่างน้อย 6 หลัก
+const PIN_MAX_LENGTH       = 10;
+const PIN_HASH_ITERATIONS  = 1024;   // HMAC-SHA256 แบบวนซ้ำ (เก็บไว้ใน credential string)
+const LOGIN_FAIL_WINDOW    = 900;    // นับความพยายามที่ล้มเหลวย้อนหลัง 15 นาที
+const LOGIN_MAX_FAILS      = 5;      // ผิดครบ 5 ครั้ง → ล็อกบัญชีชั่วคราว
+const LOGIN_LOCK_MAX       = 1800;   // ล็อกสูงสุด 30 นาที
+const CLIENT_MAX_FAILS     = 20;     // ผิดรวมจากปลายทางเดียวกัน 20 ครั้ง → บล็อกปลายทาง
+const CLIENT_LOCK_SECONDS  = 900;    // บล็อกปลายทาง 15 นาที
+const AUTH_LOG_MAX_ROWS    = 5000;
+
 const SHEET_PROJECTS = "Projects";
 const SHEET_USERS = "Users";
 const SHEET_REGS = "Registrations";
 const SHEET_ATT = "Attendance";
+const SHEET_AUTH_LOG = "AuthLog";
+
+// คอลัมน์มาตรฐานของชีต Users (เพิ่มให้อัตโนมัติถ้ายังไม่มี)
+const USER_HEADERS = ["UserID", "Name", "Role", "Email", "Phone", "PIN", "Username", "Status", "PinUpdatedAt"];
+
+// สิทธิ์ขั้นต่ำของแต่ละ action (บังคับที่เซิร์ฟเวอร์ ไม่เชื่อ UI)
+const ROLE_ADMIN_ONLY = ["Admin"];
+const ROLE_EDITORS    = ["Admin", "Staff", "Instructor"];
+const ROLE_APPROVERS  = ["Admin", "Staff"];
 
 // --- Shared Spreadsheet Accessor (ลดการเรียก getActiveSpreadsheet ซ้ำ) ---
 function getSpreadsheet_() {
@@ -60,47 +81,273 @@ function cacheRemove_(key) {
   try { CacheService.getUserCache().remove(key); } catch (e) {}
 }
 
-// --- Security & Session Management ---
-function checkAuth(sessionOverride) {
-  if (sessionOverride) return sessionOverride;
-  const session = PropertiesService.getUserProperties().getProperty("auth_session");
-  if (!session) throw new Error("Unauthorized: Please login with PIN");
-  return JSON.parse(session);
-}
+// ===========================================
+//  CRYPTO HELPERS
+// ===========================================
 
-function authenticatePin_(inputPin) {
-  const sheet = getSheet_(SHEET_USERS);
-  const data = sheet.getDataRange().getValues();
-
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][5]) === String(inputPin)) {
-      return {
-        id: String(data[i][0]),
-        name: String(data[i][1]),
-        role: String(data[i][2]),
-        email: String(data[i][3])
-      };
-    }
+/**
+ * Pepper ระดับสคริปต์ — เก็บใน ScriptProperties (ไม่ได้อยู่ในชีต)
+ * ถ้าชีตหลุดออกไปแต่ไม่มี pepper ก็ยัง brute-force PIN ไม่ได้
+ */
+function getPepper_() {
+  const props = PropertiesService.getScriptProperties();
+  let pepper = props.getProperty("AUTH_PEPPER");
+  if (!pepper) {
+    pepper = Utilities.getUuid().replace(/-/g, "") + Utilities.getUuid().replace(/-/g, "");
+    props.setProperty("AUTH_PEPPER", pepper);
   }
-
-  return null;
+  return pepper;
 }
 
-function createApiSession_(user) {
-  const token = Utilities.getUuid();
-  CacheService.getScriptCache().put("api_session_" + token, JSON.stringify(user), API_SESSION_TTL);
+function toHex_(bytes) {
+  let out = "";
+  for (let i = 0; i < bytes.length; i++) {
+    const v = (bytes[i] + 256) % 256;
+    out += (v < 16 ? "0" : "") + v.toString(16);
+  }
+  return out;
+}
+
+function sha256Hex_(str) {
+  return toHex_(Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256, String(str), Utilities.Charset.UTF_8));
+}
+
+function randomToken_() {
+  return sha256Hex_(Utilities.getUuid() + Utilities.getUuid() + Date.now() + getPepper_());
+}
+
+/** HMAC-SHA256 วนซ้ำ (key = salt + pepper) — ชะลอการ brute-force ถ้าชีตหลุด */
+function hashPin_(pin, salt, iterations) {
+  const keyBytes = Utilities.newBlob(String(salt) + "|" + getPepper_()).getBytes();
+  let bytes = Utilities.computeHmacSha256Signature(
+    Utilities.newBlob("niem$" + String(pin)).getBytes(), keyBytes);
+  for (let i = 1; i < iterations; i++) {
+    bytes = Utilities.computeHmacSha256Signature(bytes, keyBytes);
+  }
+  return Utilities.base64Encode(bytes);
+}
+
+/** เปรียบเทียบแบบใช้เวลาคงที่ — ไม่รั่วข้อมูลผ่าน timing */
+function timingSafeEqual_(a, b) {
+  a = String(a); b = String(b);
+  let diff = a.length ^ b.length;
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}
+
+/** สร้าง credential string รูปแบบ v2$<iterations>$<salt>$<hash> */
+function makeCredential_(pin) {
+  const salt = Utilities.getUuid().replace(/-/g, "");
+  return "v2$" + PIN_HASH_ITERATIONS + "$" + salt + "$" + hashPin_(pin, salt, PIN_HASH_ITERATIONS);
+}
+
+/**
+ * ตรวจ PIN กับค่าที่เก็บไว้
+ * รองรับของเดิม: plaintext PIN และ sha256 hex (จาก Code.gs รุ่นเก่า)
+ * → ถ้าตรงแบบเก่า จะคืน legacy = true เพื่ออัปเกรดเป็น v2 ทันที
+ */
+function verifyCredential_(pin, stored) {
+  stored = String(stored || "").trim();
+  if (!stored) return { ok: false, legacy: false };
+
+  if (stored.indexOf("v2$") === 0) {
+    const parts = stored.split("$");
+    const iterations = parseInt(parts[1], 10) || PIN_HASH_ITERATIONS;
+    return { ok: timingSafeEqual_(hashPin_(pin, parts[2], iterations), parts[3] || ""), legacy: false };
+  }
+  if (/^[0-9]{4,10}$/.test(stored)) {
+    return { ok: timingSafeEqual_(String(pin), stored), legacy: true };
+  }
+  if (/^[a-f0-9]{64}$/i.test(stored)) {
+    return { ok: timingSafeEqual_(sha256Hex_(pin), stored.toLowerCase()), legacy: true };
+  }
+  return { ok: false, legacy: false };
+}
+
+/** นโยบาย PIN — คืนข้อความเหตุผลถ้าไม่ผ่าน, คืน "" ถ้าผ่าน */
+function validatePinPolicy_(pin) {
+  const value = String(pin || "");
+  if (!new RegExp("^[0-9]{" + PIN_MIN_LENGTH + "," + PIN_MAX_LENGTH + "}$").test(value)) {
+    return "PIN ต้องเป็นตัวเลข " + PIN_MIN_LENGTH + "-" + PIN_MAX_LENGTH + " หลัก";
+  }
+  if (/^(\d)\1+$/.test(value)) return "PIN ห้ามเป็นตัวเลขซ้ำกันทั้งหมด";
+
+  let ascending = true, descending = true;
+  for (let i = 1; i < value.length; i++) {
+    const diff = Number(value.charAt(i)) - Number(value.charAt(i - 1));
+    if (diff !== 1) ascending = false;
+    if (diff !== -1) descending = false;
+  }
+  if (ascending || descending) return "PIN ห้ามเป็นเลขเรียงกัน เช่น 123456";
+
+  const banned = ["123456", "654321", "112233", "121212", "123123", "111222",
+                  "102030", "159357", "147258", "246810", "999999", "000000"];
+  if (banned.indexOf(value) > -1) return "PIN นี้ถูกใช้กันแพร่หลายเกินไป กรุณาเลือกใหม่";
+  return "";
+}
+
+// ===========================================
+//  BRUTE-FORCE PROTECTION
+// ===========================================
+function failKey_(kind, id) {
+  return "authfail_" + kind + "_" + sha256Hex_(String(id).toLowerCase()).substring(0, 32);
+}
+
+function getFailState_(kind, id) {
+  try {
+    const raw = CacheService.getScriptCache().get(failKey_(kind, id));
+    return raw ? JSON.parse(raw) : { fails: 0, lockUntil: 0 };
+  } catch (e) { return { fails: 0, lockUntil: 0 }; }
+}
+
+function putFailState_(kind, id, stateObj) {
+  try {
+    CacheService.getScriptCache().put(
+      failKey_(kind, id), JSON.stringify(stateObj), LOGIN_FAIL_WINDOW);
+  } catch (e) { /* cache quota — ไม่ให้ล้มทั้ง request */ }
+}
+
+function clearFailState_(kind, id) {
+  try { CacheService.getScriptCache().remove(failKey_(kind, id)); } catch (e) {}
+}
+
+/** วินาทีที่ยังต้องรอ (0 = ไม่ถูกล็อก) */
+function lockRemaining_(kind, id) {
+  const st = getFailState_(kind, id);
+  const now = Math.floor(Date.now() / 1000);
+  return st.lockUntil > now ? st.lockUntil - now : 0;
+}
+
+function registerFail_(kind, id, maxFails, lockSeconds) {
+  const st = getFailState_(kind, id);
+  const now = Math.floor(Date.now() / 1000);
+  st.fails = (st.fails || 0) + 1;
+  if (st.fails >= maxFails) {
+    const escalated = lockSeconds
+      ? lockSeconds
+      : Math.min(LOGIN_LOCK_MAX, 60 * Math.pow(2, st.fails - maxFails));
+    st.lockUntil = now + escalated;
+  }
+  putFailState_(kind, id, st);
+  return st;
+}
+
+// ===========================================
+//  AUDIT LOG
+// ===========================================
+function authLog_(event, detail) {
+  try {
+    const ss = getSpreadsheet_();
+    let sheet = ss.getSheetByName(SHEET_AUTH_LOG);
+    if (!sheet) {
+      sheet = ss.insertSheet(SHEET_AUTH_LOG);
+      sheet.getRange(1, 1, 1, 6)
+        .setValues([["Timestamp", "Event", "Identifier", "UserID", "Client", "Detail"]])
+        .setFontWeight("bold").setBackground("#7f1d1d").setFontColor("#ffffff");
+    }
+    detail = detail || {};
+    sheet.appendRow([
+      new Date(),
+      String(event),
+      String(detail.identifier || ""),
+      String(detail.userId || ""),
+      String(detail.client || ""),
+      String(detail.note || "")
+    ]);
+    if (sheet.getLastRow() > AUTH_LOG_MAX_ROWS && Math.random() < 0.1) {
+      sheet.deleteRows(2, sheet.getLastRow() - AUTH_LOG_MAX_ROWS);
+    }
+  } catch (e) {
+    Logger.log("authLog_ error: " + e.toString());
+  }
+}
+
+// ===========================================
+//  SESSION MANAGEMENT
+// ===========================================
+/**
+ * เก็บเฉพาะ hash ของ token (cache หลุด = เอา token ไปใช้ไม่ได้)
+ * epoch ใช้ตัดทุก session พร้อมกันเมื่อจำเป็น
+ */
+function sessionEpoch_() {
+  return PropertiesService.getScriptProperties().getProperty("SESSION_EPOCH") || "1";
+}
+
+function sessionKey_(token) {
+  return "sess" + sessionEpoch_() + "_" + sha256Hex_(token);
+}
+
+function createApiSession_(user, meta, mustChangePin) {
+  const token = randomToken_();
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    user: user,
+    iat: now,
+    exp: now + SESSION_ABSOLUTE_TTL,
+    seen: now,
+    ua: (meta && meta.ua) || "",
+    mcp: !!mustChangePin // ยังต้องตั้ง PIN ใหม่ก่อนใช้งานส่วนอื่น
+  };
+  CacheService.getScriptCache().put(sessionKey_(token), JSON.stringify(payload), SESSION_IDLE_TTL);
   return token;
 }
 
-function getApiSession_(token) {
+/** ปลดสถานะ "ต้องเปลี่ยน PIN" หลังตั้ง PIN ใหม่สำเร็จ */
+function clearMustChangePin_(token) {
+  if (!token) return;
+  const cache = CacheService.getScriptCache();
+  const raw = cache.get(sessionKey_(token));
+  if (!raw) return;
+  try {
+    const payload = JSON.parse(raw);
+    payload.mcp = false;
+    cache.put(sessionKey_(token), JSON.stringify(payload), SESSION_IDLE_TTL);
+  } catch (e) { /* session จะหมดอายุเองอยู่แล้ว */ }
+}
+
+/** อ่าน session + ต่ออายุแบบ sliding (idle timeout) และบังคับ absolute timeout */
+function getApiSession_(token, meta) {
   if (!token) return null;
-  const raw = CacheService.getScriptCache().get("api_session_" + token);
-  return raw ? JSON.parse(raw) : null;
+  const cache = CacheService.getScriptCache();
+  const raw = cache.get(sessionKey_(token));
+  if (!raw) return null;
+
+  let payload;
+  try { payload = JSON.parse(raw); } catch (e) { return null; }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (!payload.exp || now >= payload.exp) {
+    cache.remove(sessionKey_(token));
+    return null;
+  }
+  // ผูก session กับ user-agent — token ที่ถูกขโมยไปใช้ที่เครื่องอื่นจะใช้ไม่ได้
+  if (payload.ua && meta && meta.ua && payload.ua !== meta.ua) {
+    authLog_("session_ua_mismatch", { userId: payload.user && payload.user.id, client: (meta && meta.client) || "" });
+    cache.remove(sessionKey_(token));
+    return null;
+  }
+
+  payload.seen = now;
+  cache.put(sessionKey_(token), JSON.stringify(payload), SESSION_IDLE_TTL);
+
+  const user = payload.user || {};
+  user.mustChangePin = !!payload.mcp;
+  return user;
 }
 
 function revokeApiSession_(token) {
   if (!token) return;
-  CacheService.getScriptCache().remove("api_session_" + token);
+  try { CacheService.getScriptCache().remove(sessionKey_(token)); } catch (e) {}
+}
+
+function requireApiSession_(token, meta) {
+  const session = getApiSession_(token, meta);
+  if (!session) throw new Error("Unauthorized: Invalid or expired API session");
+  return session;
 }
 
 function jsonResponse_(payload) {
@@ -109,28 +356,226 @@ function jsonResponse_(payload) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-function requireApiSession_(token) {
-  const session = getApiSession_(token);
-  if (!session) throw new Error("Unauthorized: Invalid or expired API session");
-  return session;
+// ===========================================
+//  AUTHORIZATION
+// ===========================================
+function normalizeRole_(role) {
+  const r = String(role || "").trim().toLowerCase();
+  if (r === "admin" || r === "ผู้ดูแลระบบ") return "Admin";
+  if (r === "staff") return "Staff";
+  if (r === "instructor") return "Instructor";
+  if (r === "trainee") return "Trainee";
+  return r ? String(role).trim() : "Trainee";
 }
 
-function verifyPin(inputPin) {
-  const lock = LockService.getUserLock();
-  try {
-    lock.waitLock(5000); // ป้องกัน brute-force ซ้ำพร้อมกัน
-  } catch (e) {
-    return null; // ถ้ารอ lock ไม่ทัน ให้ถือว่าล้มเหลว
+function checkAuth(sessionOverride) {
+  if (sessionOverride) return sessionOverride;
+  // โหมด HtmlService (google.script.run) — session ผูกกับผู้ใช้ Google ที่เรียก
+  const session = PropertiesService.getUserProperties().getProperty("auth_session");
+  if (!session) throw new Error("Unauthorized: Please login with PIN");
+  return JSON.parse(session);
+}
+
+function requireRole_(session, allowedRoles) {
+  const user = checkAuth(session);
+  const role = normalizeRole_(user && user.role);
+  if (allowedRoles.indexOf(role) === -1) {
+    authLog_("forbidden", { userId: user && user.id, note: role });
+    throw new Error("Forbidden: บัญชีนี้ไม่มีสิทธิ์ดำเนินการนี้");
+  }
+  return user;
+}
+
+// ===========================================
+//  USERS SHEET ACCESS
+// ===========================================
+/** เพิ่มคอลัมน์ที่ขาด (Username/Status/PinUpdatedAt) ให้ชีตเดิมโดยไม่ทำข้อมูลเดิมเสีย */
+function ensureUserColumns_(sheet) {
+  const lastCol = Math.max(sheet.getLastColumn(), 1);
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0]
+    .map(function (h) { return String(h || "").trim(); });
+
+  let added = false;
+  for (let i = 0; i < USER_HEADERS.length; i++) {
+    if (headers.indexOf(USER_HEADERS[i]) === -1) {
+      sheet.getRange(1, headers.length + 1)
+        .setValue(USER_HEADERS[i])
+        .setFontWeight("bold").setBackground("#0f766e").setFontColor("#ffffff");
+      headers.push(USER_HEADERS[i]);
+      added = true;
+    }
+  }
+  if (added) {
+    cacheRemove_("users");
+    SpreadsheetApp.flush();
+  }
+
+  const index = {};
+  for (let j = 0; j < headers.length; j++) index[headers[j]] = j;
+  return index;
+}
+
+/** อ่านผู้ใช้ทั้งหมดพร้อม credential (ใช้ภายในเท่านั้น — ห้ามส่งออก API) */
+function readUserRows_() {
+  const sheet = getSheet_(SHEET_USERS);
+  const col = ensureUserColumns_(sheet);
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { sheet: sheet, col: col, rows: [] };
+
+  const values = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+  const rows = [];
+  for (let i = 0; i < values.length; i++) {
+    if (!values[i][col.UserID]) continue;
+    rows.push({
+      rowNumber: i + 2,
+      id:         String(values[i][col.UserID]),
+      name:       String(values[i][col.Name] || ""),
+      role:       normalizeRole_(values[i][col.Role]),
+      email:      String(values[i][col.Email] || ""),
+      phone:      String(values[i][col.Phone] || ""),
+      credential: String(values[i][col.PIN] || ""),
+      username:   String(values[i][col.Username] || ""),
+      status:     String(values[i][col.Status] || "active"),
+      pinUpdatedAt: values[i][col.PinUpdatedAt] || ""
+    });
+  }
+  return { sheet: sheet, col: col, rows: rows };
+}
+
+function publicUser_(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    role: row.role,
+    email: row.email,
+    phone: row.phone,
+    username: row.username,
+    status: row.status
+  };
+}
+
+// ===========================================
+//  LOGIN
+// ===========================================
+/**
+ * เข้าสู่ระบบด้วย (ชื่อผู้ใช้ | อีเมล | ชื่อ-สกุล) + PIN
+ * คืน object เดียวเสมอ — ไม่บอกว่าบัญชีมีอยู่จริงหรือไม่ (กัน user enumeration)
+ *   { status: 'ok' | 'invalid' | 'locked' | 'disabled' | 'must_change_pin', ... }
+ */
+function login(identifier, pin, meta) {
+  meta = meta || {};
+  const id = String(identifier || "").trim();
+  const client = String(meta.client || "");
+
+  if (!id || !/^[0-9]{4,10}$/.test(String(pin || ""))) {
+    return { status: "invalid" };
+  }
+
+  // 1) ปลายทางถูกบล็อกอยู่หรือไม่
+  if (client) {
+    const clientWait = lockRemaining_("client", client);
+    if (clientWait > 0) return { status: "locked", retryAfter: clientWait };
+  }
+  // 2) บัญชีนี้ถูกล็อกชั่วคราวหรือไม่
+  const idWait = lockRemaining_("identity", id);
+  if (idWait > 0) {
+    authLog_("login_locked", { identifier: id, client: client });
+    return { status: "locked", retryAfter: idWait };
+  }
+
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch (e) {
+    return { status: "invalid" };
   }
 
   try {
-    const user = authenticatePin_(inputPin);
-    if (!user) return null;
-    PropertiesService.getUserProperties().setProperty("auth_session", JSON.stringify(user));
-    return user;
+    const store = readUserRows_();
+    const needle = id.toLowerCase();
+    const candidates = store.rows.filter(function (row) {
+      return [row.username, row.email, row.name].some(function (field) {
+        return String(field || "").trim().toLowerCase() === needle;
+      });
+    });
+
+    let matched = null, legacy = false;
+    for (let i = 0; i < candidates.length; i++) {
+      const result = verifyCredential_(pin, candidates[i].credential);
+      if (result.ok) { matched = candidates[i]; legacy = result.legacy; break; }
+    }
+    // ไม่มีบัญชีตรง → ยังคำนวณ hash หลอกหนึ่งครั้ง ให้เวลาตอบสนองใกล้เคียงกัน
+    if (!matched && candidates.length === 0) {
+      hashPin_(pin, "dummy-salt-for-timing", PIN_HASH_ITERATIONS);
+    }
+
+    if (!matched) {
+      registerFail_("identity", id, LOGIN_MAX_FAILS, 0);
+      if (client) registerFail_("client", client, CLIENT_MAX_FAILS, CLIENT_LOCK_SECONDS);
+      authLog_("login_failed", { identifier: id, client: client });
+      const wait = lockRemaining_("identity", id);
+      return wait > 0 ? { status: "locked", retryAfter: wait } : { status: "invalid" };
+    }
+
+    if (String(matched.status || "active").toLowerCase() === "disabled") {
+      authLog_("login_disabled", { identifier: id, userId: matched.id, client: client });
+      return { status: "disabled" };
+    }
+
+    clearFailState_("identity", id);
+    if (client) clearFailState_("client", client);
+
+    const user = publicUser_(matched);
+    // PIN เดิมยังไม่ผ่านนโยบายใหม่ → บังคับตั้งใหม่ก่อนใช้งาน
+    const mustChangePin = legacy || String(pin).length < PIN_MIN_LENGTH || !!validatePinPolicy_(pin);
+    const token = createApiSession_(user, meta, mustChangePin);
+    authLog_("login_success", {
+      identifier: id, userId: matched.id, client: client,
+      note: mustChangePin ? "must_change_pin" : ""
+    });
+
+    return {
+      status: mustChangePin ? "must_change_pin" : "ok",
+      user: user,
+      token: token,
+      mustChangePin: mustChangePin,
+      expiresIn: SESSION_IDLE_TTL
+    };
   } catch (e) {
-    Logger.log("verifyPin error: " + e.toString());
-    return null;
+    Logger.log("login error: " + e.toString());
+    return { status: "invalid" };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** เปลี่ยน PIN ของบัญชีที่ล็อกอินอยู่ (ต้องยืนยัน PIN ปัจจุบัน) */
+function changeOwnPin(currentPin, newPin, session) {
+  const user = checkAuth(session);
+  const policyError = validatePinPolicy_(newPin);
+  if (policyError) return { status: "weak", message: policyError };
+
+  const lock = LockService.getDocumentLock();
+  try { lock.waitLock(10000); } catch (e) { throw new Error("System busy"); }
+
+  try {
+    const store = readUserRows_();
+    const row = store.rows.filter(function (r) { return r.id === String(user.id); })[0];
+    if (!row) return { status: "invalid" };
+
+    if (!verifyCredential_(currentPin, row.credential).ok) {
+      registerFail_("identity", row.username || row.email || row.name || row.id, LOGIN_MAX_FAILS, 0);
+      authLog_("pin_change_failed", { userId: row.id });
+      return { status: "invalid" };
+    }
+    if (verifyCredential_(newPin, row.credential).ok) {
+      return { status: "weak", message: "PIN ใหม่ต้องไม่ซ้ำกับ PIN เดิม" };
+    }
+
+    store.sheet.getRange(row.rowNumber, store.col.PIN + 1).setValue(makeCredential_(newPin));
+    store.sheet.getRange(row.rowNumber, store.col.PinUpdatedAt + 1).setValue(new Date());
+    cacheRemove_("users");
+    SpreadsheetApp.flush();
+    authLog_("pin_changed", { userId: row.id });
+    return { status: "ok" };
   } finally {
     lock.releaseLock();
   }
@@ -150,6 +595,19 @@ function logout() {
   return true;
 }
 
+/**
+ * โหมด HtmlService: ล็อกอินแล้วเก็บ session ไว้ที่ UserProperties
+ * (โหมดเว็บผ่าน proxy ใช้ doPost → login() แทน)
+ */
+function loginWithProperties(identifier, pin) {
+  const result = login(identifier, pin, {});
+  if (result.status === "ok" || result.status === "must_change_pin") {
+    PropertiesService.getUserProperties().setProperty("auth_session", JSON.stringify(result.user));
+    delete result.token; // โหมดนี้ไม่ใช้ bearer token
+  }
+  return result;
+}
+
 // --- Web App Entry ---
 function doGet() {
   const html = HtmlService.createHtmlOutputFromFile('index')
@@ -162,48 +620,74 @@ function doGet() {
 function doPost(e) {
   try {
     const payload = e && e.postData && e.postData.contents ? JSON.parse(e.postData.contents) : {};
-    const action = payload.action;
-    const args = payload.args || [];
-    const token = payload.token || '';
+    const action = String(payload.action || '');
+    const args = Array.isArray(payload.args) ? payload.args : [];
+    const token = String(payload.token || '');
+    // meta ถูกเติมโดย proxy เท่านั้น (client ปลอมไม่ได้ — proxy ทับค่าทิ้งเสมอ)
+    const meta = payload.meta && typeof payload.meta === 'object' ? payload.meta : {};
 
+    // --- Public endpoints (ไม่ต้องมี session) ---
     switch (action) {
-      case 'verifyPin': {
-        const user = authenticatePin_(args[0]);
-        if (!user) return jsonResponse_({ ok: true, result: null });
-        return jsonResponse_({ ok: true, result: { user: user, token: createApiSession_(user) } });
+      case 'login':
+        return jsonResponse_({ ok: true, result: login(args[0], args[1], meta) });
+      case 'verifyPin':
+        // เวอร์ชันเก่าที่ล็อกอินด้วย PIN อย่างเดียว — ไม่รองรับแล้ว
+        return jsonResponse_({ ok: true, result: { status: 'upgrade_required' } });
+      case 'getSessionUser': {
+        const current = getApiSession_(token, meta);
+        return jsonResponse_({ ok: true, result: current });
       }
-      case 'getSessionUser':
-        return jsonResponse_({ ok: true, result: getApiSession_(token) });
       case 'logout':
         revokeApiSession_(token);
         return jsonResponse_({ ok: true, result: true });
-      case 'getSystemSettings':
-        return jsonResponse_({ ok: true, result: getSystemSettings() });
+      case 'getPublicSettings':
+        return jsonResponse_({ ok: true, result: getPublicSettings() });
     }
 
-    const session = requireApiSession_(token);
+    // --- ต้องมี session ที่ยังไม่หมดอายุ ---
+    const session = requireApiSession_(token, meta);
+
+    // ยังไม่ได้ตั้ง PIN ใหม่ → ทำได้อย่างเดียวคือเปลี่ยน PIN (กันการรีเฟรชหน้าเพื่อข้ามขั้นตอน)
+    if (session.mustChangePin && action !== 'changeOwnPin') {
+      throw new Error("PIN_CHANGE_REQUIRED: กรุณาตั้งรหัส PIN ใหม่ก่อนใช้งาน");
+    }
 
     switch (action) {
+      case 'getSystemSettings':
+        return jsonResponse_({ ok: true, result: getSystemSettings(session) });
       case 'saveSystemSetting':
+        requireRole_(session, ROLE_ADMIN_ONLY);
         return jsonResponse_({ ok: true, result: saveSystemSetting(args[0], args[1], session) });
+      case 'changeOwnPin': {
+        const changed = changeOwnPin(args[0], args[1], session);
+        if (changed && changed.status === 'ok') clearMustChangePin_(token);
+        return jsonResponse_({ ok: true, result: changed });
+      }
       case 'getProjects':
         return jsonResponse_({ ok: true, result: getProjects(session) });
       case 'saveProject':
+        requireRole_(session, ROLE_EDITORS);
         return jsonResponse_({ ok: true, result: saveProject(args[0], session) });
       case 'deleteProject':
+        requireRole_(session, ROLE_APPROVERS);
         return jsonResponse_({ ok: true, result: deleteProject(args[0], session) });
       case 'getUsers':
+        requireRole_(session, ROLE_ADMIN_ONLY);
         return jsonResponse_({ ok: true, result: getUsers(session) });
       case 'saveUserBackend':
+        requireRole_(session, ROLE_ADMIN_ONLY);
         return jsonResponse_({ ok: true, result: saveUserBackend(args[0], session) });
       case 'deleteUserBackend':
+        requireRole_(session, ROLE_ADMIN_ONLY);
         return jsonResponse_({ ok: true, result: deleteUserBackend(args[0], session) });
       case 'uploadFile':
+        requireRole_(session, ROLE_EDITORS);
         return jsonResponse_({ ok: true, result: uploadFile(args[0], args[1], session) });
       case 'deleteFile':
+        requireRole_(session, ROLE_EDITORS);
         return jsonResponse_({ ok: true, result: deleteFile(args[0], session) });
       default:
-        throw new Error('Unsupported action: ' + action);
+        throw new Error('Unsupported action');
     }
   } catch (error) {
     Logger.log('doPost error: ' + error.toString());
@@ -212,33 +696,54 @@ function doPost(e) {
 }
 
 // --- Settings Storage ---
+const ALLOWED_SETTING_KEYS = ["siteName", "logoUrl", "permissions"];
+
 function saveSystemSetting(key, value, session) {
-  checkAuth(session);
+  requireRole_(session, ROLE_ADMIN_ONLY);
+  if (ALLOWED_SETTING_KEYS.indexOf(String(key)) === -1) {
+    throw new Error("ไม่อนุญาตให้บันทึกการตั้งค่านี้");
+  }
   PropertiesService.getScriptProperties().setProperty(key, value);
   cacheRemove_("sys_settings");
+  cacheRemove_("public_settings");
   SpreadsheetApp.flush();
   return true;
 }
 
-function getSystemSettings() {
-  // ไม่ใส่ checkAuth — Branding ต้องโหลดได้ตอนหน้า Login
-  const cached = cacheGet_("sys_settings");
-  if (cached) return cached;
-
+function brandingSettings_() {
   const props = PropertiesService.getScriptProperties().getProperties();
   let logoUrl = props.logoUrl || "";
 
-  if (logoUrl.includes("drive.google.com")) {
+  if (logoUrl.indexOf("drive.google.com") > -1) {
     const match = logoUrl.match(/id=([^&]+)/) || logoUrl.match(/\/d\/(.+?)\//);
     if (match && match[1]) {
       logoUrl = "https://lh3.googleusercontent.com/d/" + match[1];
     }
   }
+  return { logoUrl: logoUrl, siteName: props.siteName || "NIEM" };
+}
 
+/** เฉพาะ branding — เปิดให้หน้า Login เรียกได้โดยไม่ต้องมี session */
+function getPublicSettings() {
+  const cached = cacheGet_("public_settings");
+  if (cached) return cached;
+  const result = brandingSettings_();
+  cachePut_("public_settings", result, 600);
+  return result;
+}
+
+/** การตั้งค่าทั้งหมด — ต้องล็อกอินก่อน และไม่คืนความลับใด ๆ (เช่น adminPin) */
+function getSystemSettings(session) {
+  checkAuth(session);
+
+  const cached = cacheGet_("sys_settings");
+  if (cached) return cached;
+
+  const props = PropertiesService.getScriptProperties().getProperties();
+  const branding = brandingSettings_();
   const result = {
-    logoUrl: logoUrl,
-    siteName: props.siteName || "NIEM",
-    adminPin: props.adminPin || "",
+    logoUrl: branding.logoUrl,
+    siteName: branding.siteName,
     permissions: props.permissions ? JSON.parse(props.permissions) : null
   };
   cachePut_("sys_settings", result, 600); // Cache 10 min for settings
@@ -385,80 +890,124 @@ function deleteProject(projectId, session) {
 // ===========================================
 //  USERS — Batch Read + Cache
 // ===========================================
+/** รายชื่อผู้ใช้สำหรับหน้าจัดการ — ไม่มี PIN/credential ออกไปเด็ดขาด */
 function getUsers(session) {
-  checkAuth(session);
+  requireRole_(session, ROLE_ADMIN_ONLY);
 
   const cached = cacheGet_("users");
   if (cached) return cached;
 
-  const sheet = getSheet_(SHEET_USERS);
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return [];
-
-  const data = sheet.getRange(2, 1, lastRow - 1, 6).getValues();
-  const users = [];
-
-  for (let i = 0; i < data.length; i++) {
-    if (!data[i][0]) continue;
-    users.push({
-      id:    String(data[i][0]),
-      name:  String(data[i][1]),
-      role:  String(data[i][2]),
-      email: String(data[i][3]),
-      phone: String(data[i][4]),
-      pin:   String(data[i][5])
-    });
-  }
+  const store = readUserRows_();
+  const users = store.rows.map(function (row) {
+    const safe = publicUser_(row);
+    safe.hasPin = !!row.credential;
+    safe.pinUpdatedAt = row.pinUpdatedAt ? String(row.pinUpdatedAt) : "";
+    return safe;
+  });
 
   cachePut_("users", users);
   return users;
 }
 
+/**
+ * บันทึกผู้ใช้ — PIN ถูก hash เสมอ, เว้นว่างไว้ = ไม่เปลี่ยน PIN เดิม
+ * ป้องกันไม่ให้ Admin คนสุดท้ายถูกลดสิทธิ์/ปิดใช้งานจนไม่มีใครเข้าระบบได้
+ */
 function saveUserBackend(userData, session) {
-  checkAuth(session);
+  const actor = requireRole_(session, ROLE_ADMIN_ONLY);
   const lock = LockService.getDocumentLock();
   try { lock.waitLock(10000); } catch (e) { throw new Error("System busy"); }
 
   try {
-    const sheet = getSheet_(SHEET_USERS);
-    const data = sheet.getDataRange().getValues();
-    let rowIndex = -1;
-
-    for (let i = 1; i < data.length; i++) {
-      if (String(data[i][0]) === String(userData.id)) {
-        rowIndex = i + 1;
-        break;
-      }
+    const store = readUserRows_();
+    const col = store.col;
+    const id = String(userData.id || "").trim();
+    if (!id || !String(userData.name || "").trim()) {
+      throw new Error("ต้องระบุรหัสผู้ใช้และชื่อ");
     }
 
-    const rowData = [
-      userData.id,
-      userData.name,
-      userData.role,
-      userData.email,
-      userData.phone || '-',
-      userData.pin
-    ];
+    const existing = store.rows.filter(function (r) { return r.id === id; })[0];
+    const role = normalizeRole_(userData.role);
+    const username = String(userData.username || "").trim();
+    const email = String(userData.email || "").trim();
+    const status = String(userData.status || (existing && existing.status) || "active").toLowerCase() === "disabled"
+      ? "disabled" : "active";
 
-    if (rowIndex > -1) {
-      sheet.getRange(rowIndex, 1, 1, 6).setValues([rowData]);
-    } else {
-      sheet.appendRow(rowData);
+    if (username && !/^[a-zA-Z0-9._-]{3,32}$/.test(username)) {
+      throw new Error("ชื่อผู้ใช้ต้องเป็น a-z 0-9 . _ - ความยาว 3-32 ตัว");
     }
+    // ชื่อผู้ใช้/อีเมล ต้องไม่ซ้ำกับบัญชีอื่น (ไม่งั้นล็อกอินจะกำกวม)
+    const clash = store.rows.filter(function (r) {
+      if (r.id === id) return false;
+      const keys = [r.username, r.email].map(function (v) { return String(v || "").trim().toLowerCase(); });
+      return (username && keys.indexOf(username.toLowerCase()) > -1) ||
+             (email && keys.indexOf(email.toLowerCase()) > -1);
+    });
+    if (clash.length) throw new Error("ชื่อผู้ใช้หรืออีเมลนี้ถูกใช้แล้ว");
+
+    // credential: ตั้งใหม่เมื่อส่ง pin มาเท่านั้น
+    let credential = existing ? existing.credential : "";
+    let pinChanged = false;
+    const newPin = String(userData.pin || "").trim();
+    if (newPin) {
+      const policyError = validatePinPolicy_(newPin);
+      if (policyError) throw new Error(policyError);
+      credential = makeCredential_(newPin);
+      pinChanged = true;
+    } else if (!existing) {
+      throw new Error("ผู้ใช้ใหม่ต้องกำหนด PIN");
+    }
+
+    // กันไม่ให้เหลือ Admin ที่ใช้งานได้ 0 คน
+    if (existing && normalizeRole_(existing.role) === "Admin" && (role !== "Admin" || status === "disabled")) {
+      const otherAdmins = store.rows.filter(function (r) {
+        return r.id !== id && normalizeRole_(r.role) === "Admin" && r.status !== "disabled";
+      });
+      if (!otherAdmins.length) throw new Error("ต้องมีผู้ดูแลระบบที่ใช้งานได้อย่างน้อย 1 บัญชี");
+    }
+
+    const write = function (rowNumber, key, value) {
+      if (col[key] === undefined) return;
+      store.sheet.getRange(rowNumber, col[key] + 1).setValue(value);
+    };
+
+    const rowNumber = existing ? existing.rowNumber : store.sheet.getLastRow() + 1;
+    write(rowNumber, "UserID", id);
+    write(rowNumber, "Name", String(userData.name).trim());
+    write(rowNumber, "Role", role);
+    write(rowNumber, "Email", email);
+    write(rowNumber, "Phone", String(userData.phone || "-"));
+    write(rowNumber, "PIN", credential);
+    write(rowNumber, "Username", username);
+    write(rowNumber, "Status", status);
+    if (pinChanged) write(rowNumber, "PinUpdatedAt", new Date());
 
     cacheRemove_("users");
     SpreadsheetApp.flush();
+    authLog_(existing ? "user_updated" : "user_created", {
+      userId: actor.id, identifier: username || email || id,
+      note: (pinChanged ? "pin_set " : "") + role + " " + status
+    });
     return true;
   } catch (e) {
     Logger.log("saveUserBackend error: " + e.toString());
-    throw new Error("บันทึกผู้ใช้ล้มเหลว: " + e.message);
+    throw new Error(e.message || "บันทึกผู้ใช้ล้มเหลว");
   } finally {
     lock.releaseLock();
   }
 }
 
 function deleteUserBackend(userId, session) {
-  checkAuth(session);
+  const actor = requireRole_(session, ROLE_ADMIN_ONLY);
+  if (String(actor.id) === String(userId)) {
+    throw new Error("ลบบัญชีที่กำลังใช้งานอยู่ไม่ได้");
+  }
+  const remaining = readUserRows_().rows.filter(function (r) {
+    return r.id !== String(userId) && normalizeRole_(r.role) === "Admin" && r.status !== "disabled";
+  });
+  if (!remaining.length) throw new Error("ต้องมีผู้ดูแลระบบที่ใช้งานได้อย่างน้อย 1 บัญชี");
+  authLog_("user_deleted", { userId: actor.id, identifier: String(userId) });
+
   const lock = LockService.getDocumentLock();
   try { lock.waitLock(10000); } catch (e) { throw new Error("System busy"); }
 
@@ -586,9 +1135,8 @@ function setupDatabase() {
   // -- Users --
   let sheetUsers = ss.getSheetByName(SHEET_USERS);
   if (!sheetUsers) sheetUsers = ss.insertSheet(SHEET_USERS);
-  const headersUsers = ["UserID", "Name", "Role", "Email", "Phone", "PIN"];
-  sheetUsers.getRange(1, 1, 1, headersUsers.length)
-    .setValues([headersUsers]).setFontWeight("bold")
+  sheetUsers.getRange(1, 1, 1, USER_HEADERS.length)
+    .setValues([USER_HEADERS]).setFontWeight("bold")
     .setBackground("#0f766e").setFontColor("#ffffff");
 
   // Production: do not seed sample users. Add the first real Admin row in the Users sheet.
@@ -615,5 +1163,126 @@ function setupDatabase() {
 
   SpreadsheetApp.flush();
   Logger.log("✅ Database setup complete (Projects, Users, Registrations, Attendance)");
+  return true;
+}
+
+// ===========================================
+//  SECURITY MAINTENANCE (รันจาก Apps Script editor)
+// ===========================================
+/**
+ * รันครั้งเดียวหลังอัปเดตโค้ดนี้:
+ *  1) เพิ่มคอลัมน์ Username / Status / PinUpdatedAt
+ *  2) แปลง PIN ที่เก็บเป็น plaintext/sha256 ให้เป็น hash แบบมี salt+pepper
+ *  3) ลบ adminPin ที่ค้างอยู่ใน ScriptProperties
+ *  4) เติม Username จากอีเมลให้บัญชีที่ยังไม่มี
+ * PIN ของผู้ใช้ยังเป็นค่าเดิม — ระบบจะบังคับตั้ง PIN 6 หลักใหม่ตอนล็อกอินครั้งถัดไป
+ */
+function migrateSecurity() {
+  const store = readUserRows_();
+  const col = store.col;
+  let hashed = 0, named = 0;
+
+  store.rows.forEach(function (row) {
+    const cred = String(row.credential || "").trim();
+    if (cred && cred.indexOf("v2$") !== 0) {
+      // plaintext → hash ทันที (ค่า PIN เดิมยังใช้ล็อกอินได้)
+      const plain = /^[0-9]{4,10}$/.test(cred) ? cred : null;
+      if (plain) {
+        store.sheet.getRange(row.rowNumber, col.PIN + 1).setValue(makeCredential_(plain));
+        hashed++;
+      }
+    }
+    if (!String(row.username || "").trim()) {
+      const fromEmail = String(row.email || "").split("@")[0].replace(/[^a-zA-Z0-9._-]/g, "");
+      if (fromEmail.length >= 3) {
+        store.sheet.getRange(row.rowNumber, col.Username + 1).setValue(fromEmail);
+        named++;
+      }
+    }
+    if (!String(row.status || "").trim()) {
+      store.sheet.getRange(row.rowNumber, col.Status + 1).setValue("active");
+    }
+  });
+
+  PropertiesService.getScriptProperties().deleteProperty("adminPin");
+  getPepper_(); // สร้าง pepper ถ้ายังไม่มี
+  cacheRemove_("users");
+  cacheRemove_("sys_settings");
+  cacheRemove_("public_settings");
+  SpreadsheetApp.flush();
+
+  const summary = "✅ migrateSecurity: hash PIN " + hashed + " บัญชี, ตั้ง username " + named + " บัญชี";
+  Logger.log(summary);
+  return summary;
+}
+
+/**
+ * ดูว่าแต่ละบัญชีใช้อะไรล็อกอินได้บ้าง (รันจาก Apps Script editor → ดูผลใน Execution log)
+ * ไม่แสดง PIN — บอกแค่ว่าเก็บเป็น hash แล้วหรือยัง
+ */
+function whoCanLogin() {
+  const rows = readUserRows_().rows;
+  if (!rows.length) {
+    Logger.log("⚠️ ไม่มีผู้ใช้ในชีต Users เลย");
+    return "no users";
+  }
+  Logger.log("ล็อกอินได้ด้วยค่าใดค่าหนึ่งในช่อง 'ชื่อผู้ใช้ หรือ อีเมล' ต่อไปนี้:");
+  rows.forEach(function (r) {
+    const cred = String(r.credential || "");
+    Logger.log(
+      "• " + (r.username || "(ยังไม่มี username)") +
+      "  | อีเมล: " + (r.email || "-") +
+      "  | ชื่อ: " + (r.name || "-") +
+      "  | สิทธิ์: " + r.role +
+      "  | สถานะ: " + r.status +
+      "  | PIN: " + (!cred ? "ยังไม่ตั้ง" : (cred.indexOf("v2$") === 0 ? "hash แล้ว" : "ยังเป็น plaintext (ควรรัน migrateSecurity)"))
+    );
+  });
+  return rows.length + " accounts";
+}
+
+/**
+ * ตั้ง PIN ใหม่ให้บัญชีใดบัญชีหนึ่ง — ใช้กรณีลืม PIN จนเข้าระบบไม่ได้
+ * รันจาก Apps Script editor เท่านั้น (ผู้ที่เปิด editor ได้คือเจ้าของสคริปต์อยู่แล้ว)
+ *   ตัวอย่าง: resetUserPin("somchai", "481625")
+ */
+function resetUserPin(identifier, newPin) {
+  const policyError = validatePinPolicy_(newPin);
+  if (policyError) throw new Error(policyError);
+
+  const store = readUserRows_();
+  const needle = String(identifier || "").trim().toLowerCase();
+  const row = store.rows.filter(function (r) {
+    return [r.username, r.email, r.name, r.id].some(function (f) {
+      return String(f || "").trim().toLowerCase() === needle;
+    });
+  })[0];
+  if (!row) throw new Error("ไม่พบบัญชี: " + identifier);
+
+  store.sheet.getRange(row.rowNumber, store.col.PIN + 1).setValue(makeCredential_(newPin));
+  store.sheet.getRange(row.rowNumber, store.col.PinUpdatedAt + 1).setValue(new Date());
+  if (String(row.status || "").toLowerCase() === "disabled") {
+    store.sheet.getRange(row.rowNumber, store.col.Status + 1).setValue("active");
+  }
+  clearFailState_("identity", identifier); // ปลดล็อกบัญชีถ้าถูกล็อกอยู่
+  cacheRemove_("users");
+  SpreadsheetApp.flush();
+  authLog_("pin_reset_by_owner", { userId: row.id, identifier: String(identifier) });
+
+  const summary = "✅ ตั้ง PIN ใหม่ให้ " + (row.username || row.email || row.name) + " แล้ว";
+  Logger.log(summary);
+  return summary;
+}
+
+/**
+ * เพิกถอนทุก session ทันที (เช่น สงสัยว่า token รั่ว) — PIN ไม่ถูกแตะต้อง
+ * ทุกคนจะถูกเด้งออกและต้องล็อกอินใหม่
+ */
+function revokeAllSessions() {
+  const props = PropertiesService.getScriptProperties();
+  const next = String(Number(props.getProperty("SESSION_EPOCH") || "1") + 1);
+  props.setProperty("SESSION_EPOCH", next);
+  authLog_("sessions_revoked", { note: "epoch=" + next });
+  Logger.log("✅ ตัดทุก session แล้ว (epoch " + next + ")");
   return true;
 }

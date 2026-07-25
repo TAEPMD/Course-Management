@@ -7,7 +7,6 @@
  */
 
 const isGAS = () => typeof google !== 'undefined' && google.script;
-const API_TOKEN_KEY = 'niem_api_token';
 
 function gasRun(funcName, ...args) {
   return new Promise((resolve, reject) => {
@@ -18,20 +17,62 @@ function gasRun(funcName, ...args) {
   });
 }
 
+/**
+ * Session token อยู่ใน httpOnly cookie ที่ proxy เป็นคนตั้ง —
+ * โค้ดฝั่งหน้าเว็บอ่านไม่ได้ ทำให้ XSS ขโมย session ไม่ได้
+ * X-Requested-With เป็นด่านกัน CSRF (ฟอร์มข้ามเว็บส่ง custom header ไม่ได้)
+ */
 async function proxyRun(action, ...args) {
   const response = await fetch('/api/gas', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      action,
-      args,
-      token: sessionStorage.getItem(API_TOKEN_KEY) || '',
-    }),
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'niem-app',
+    },
+    body: JSON.stringify({ action, args }),
   });
   const data = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(data?.error || `API error (${response.status})`);
-  if (!data?.ok)    throw new Error(data?.error || 'API request failed');
+  if (response.status === 429) {
+    return data?.result ?? { status: 'locked', retryAfter: 60 };
+  }
+  if (!response.ok) throw await toApiError(data?.error || `API error (${response.status})`);
+  if (!data?.ok)    throw await toApiError(data?.error || 'API request failed');
   return data.result;
+}
+
+/**
+ * แปลง error จาก backend — ถ้า session หมดอายุ ให้เคลียร์ session
+ * พากลับหน้า login และเปลี่ยนข้อความเป็นภาษาไทยที่เข้าใจง่าย
+ */
+async function toApiError(message) {
+  if (/Forbidden/i.test(message)) {
+    return new Error('บัญชีนี้ไม่มีสิทธิ์ดำเนินการนี้');
+  }
+  // เซิร์ฟเวอร์บล็อกทุกคำสั่งจนกว่าจะตั้ง PIN ใหม่
+  if (/PIN_CHANGE_REQUIRED/i.test(message)) {
+    try {
+      const { openPinChangeModal } = await import('./modules/auth.js');
+      openPinChangeModal(true);
+    } catch { /* หน้า login ยังไม่พร้อม */ }
+    return new Error('กรุณาตั้งรหัส PIN ใหม่ก่อนใช้งาน');
+  }
+  if (/Unauthorized|Invalid or expired API session|Please login/i.test(message)) {
+    try {
+      const { clearClientSession } = await import('./modules/auth.js');
+      clearClientSession();
+    } catch { /* login view unavailable — still throw below */ }
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        icon: 'info',
+        title: 'Session หมดอายุ',
+        text: 'กรุณาเข้าสู่ระบบใหม่ด้วย PIN',
+        confirmButtonColor: '#1e3a8a',
+      });
+    }
+    return new Error('Session หมดอายุ กรุณาเข้าสู่ระบบใหม่');
+  }
+  return new Error(message);
 }
 
 async function tryProxy(action, ...args) {
@@ -43,11 +84,18 @@ async function tryProxy(action, ...args) {
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-export async function verifyPin(pin) {
-  if (isGAS()) return gasRun('verifyPin', pin);
-  const result = await tryProxy('verifyPin', pin);
-  if (result?.token) sessionStorage.setItem(API_TOKEN_KEY, result.token);
-  return result?.user ?? result;
+/**
+ * เข้าสู่ระบบ — คืน { status, user?, mustChangePin?, retryAfter? }
+ * status: ok | must_change_pin | invalid | locked | disabled | upgrade_required
+ */
+export async function login(identifier, pin) {
+  if (isGAS()) return gasRun('loginWithProperties', identifier, pin);
+  return tryProxy('login', identifier, pin);
+}
+
+export async function changeOwnPin(currentPin, newPin) {
+  if (isGAS()) return gasRun('changeOwnPin', currentPin, newPin);
+  return tryProxy('changeOwnPin', currentPin, newPin);
 }
 
 export async function getSessionUser() {
@@ -56,10 +104,15 @@ export async function getSessionUser() {
 }
 
 export async function logout() {
-  if (isGAS()) { sessionStorage.removeItem(API_TOKEN_KEY); return gasRun('logout'); }
+  if (isGAS()) return gasRun('logout');
   try { await tryProxy('logout'); } catch {}
-  sessionStorage.removeItem(API_TOKEN_KEY);
   return true;
+}
+
+/** เฉพาะชื่อระบบ/โลโก้ — ใช้ตอนยังไม่ล็อกอิน */
+export async function getPublicSettings() {
+  if (isGAS()) return gasRun('getSystemSettings');
+  return tryProxy('getPublicSettings');
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -127,8 +180,9 @@ export async function checkConnection() {
   try {
     const resp = await fetch('/api/gas', {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ action: 'getSessionUser', args: [] }),
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'niem-app' },
+      body:    JSON.stringify({ action: 'getPublicSettings', args: [] }),
     });
     const data = await resp.json().catch(() => ({}));
 
