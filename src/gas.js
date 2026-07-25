@@ -44,6 +44,11 @@ async function proxyRun(action, ...args) {
 /**
  * แปลง error จาก backend — ถ้า session หมดอายุ ให้เคลียร์ session
  * พากลับหน้า login และเปลี่ยนข้อความเป็นภาษาไทยที่เข้าใจง่าย
+ *
+ * หมายเหตุ: `import()` ข้างล่างเป็น dynamic import โดยตั้งใจ เพื่อตัดวงจร
+ * auth.js → gas.js → auth.js — อย่าเปลี่ยนเป็น static import เพราะจะเกิด
+ * circular dependency ตอนโหลดโมดูล (rollup จะเตือนเรื่อง chunk แต่ไม่มีผล
+ * เพราะทั้งแอป bundle เป็น chunk เดียวอยู่แล้ว)
  */
 async function toApiError(message) {
   if (/Forbidden/i.test(message)) {

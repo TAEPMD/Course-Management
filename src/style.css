@@ -4,6 +4,12 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Sarabun:wght@300;400;500;600;700&display=swap');
 
+/* Tailwind — build ตอน compile แทน cdn.tailwindcss.com ที่เคย compile ในเบราว์เซอร์
+   ต้องอยู่บนสุด เพื่อให้กฎที่เขียนเองด้านล่างเขียนทับ utility ได้เหมือนเดิม */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* CSS Variables */
 :root {
   --primary: #173b8f;

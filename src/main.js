@@ -5,7 +5,7 @@
 
 import { state } from './modules/state.js';
 import { checkSession, logout, renderNumpad, handlePinInput, syncPinInputField, updatePinDisplay,
-         openPinChangeModal, closePinChangeModal, submitPinChange, PIN_LENGTH } from './modules/auth.js';
+         openPinChangeModal, closePinChangeModal, submitPinChange, processLogin, PIN_LENGTH } from './modules/auth.js';
 import { checkConnection } from './gas.js';
 import { showDashboard, showCourseManagement, showAnnualPlan, showMonthlyPlan, showWeeklyPlan,
          createNewProject, saveProjectInfo, openProject, switchTab, uploadDocument, downloadDocument, deleteDocument,
@@ -129,7 +129,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Login form: ส่งด้วยปุ่ม/Enter ก็ได้ (numpad จะยิงเองเมื่อครบ 6 หลัก)
   document.getElementById('login-form')?.addEventListener('submit', e => {
     e.preventDefault();
-    import('./modules/auth.js').then(m => m.processLogin());
+    processLogin();
   });
 
   // ปุ่มแสดง/ซ่อน PIN
@@ -152,7 +152,7 @@ document.addEventListener('DOMContentLoaded', () => {
       syncPinInputField();
       updatePinDisplay();
       if (sanitized.length === PIN_LENGTH) {
-        import('./modules/auth.js').then(m => m.processLogin());
+        processLogin();
       }
     });
   }
