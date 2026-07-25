@@ -4467,6 +4467,9 @@ body.dark .table-container table tbody tr:hover td {
 
 .budget-burn-card {
   grid-row: span 2;
+  /* คอลัมน์ขวามีสองการ์ดซ้อนกัน ถ้าไม่ตรึงหัวไว้ การ์ดนี้จะถูกยืดจนมีที่ว่างเปล่า
+     ด้านล่างเป็นแถบใหญ่ — ให้สูงเท่าเนื้อหาจริงแทน */
+  align-self: start;
 }
 
 .budget-card-head {

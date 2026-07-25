@@ -92,8 +92,8 @@ export function renderUserTable() {
       <td class="px-6 py-4 text-xs text-gray-500">${escapeHTML(u.email || '-')}</td>
       <td class="px-6 py-4">
         <div class="flex items-center justify-end space-x-2">
-          <button onclick="window._editUser('${escapeJsAttr(u.id)}')" class="p-2 text-blue-500 hover:bg-blue-50 rounded-xl transition"><i class="fa-solid fa-pen-to-square text-sm"></i></button>
-          <button onclick="window._deleteUser('${escapeJsAttr(u.id)}')" class="p-2 text-red-400 hover:bg-red-50 rounded-xl transition"><i class="fa-solid fa-trash text-sm"></i></button>
+          <button aria-label="แก้ไขผู้ใช้ ${escapeHTML(u.name || u.id)}" onclick="window._editUser('${escapeJsAttr(u.id)}')" class="p-2 text-blue-500 hover:bg-blue-50 rounded-xl transition"><i class="fa-solid fa-pen-to-square text-sm" aria-hidden="true"></i></button>
+          <button aria-label="ลบผู้ใช้ ${escapeHTML(u.name || u.id)}" onclick="window._deleteUser('${escapeJsAttr(u.id)}')" class="p-2 text-red-400 hover:bg-red-50 rounded-xl transition"><i class="fa-solid fa-trash text-sm" aria-hidden="true"></i></button>
         </div></td>`;
     tbody.appendChild(tr);
   });

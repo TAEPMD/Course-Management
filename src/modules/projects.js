@@ -1066,8 +1066,8 @@ function renderCourseManagementCards(projects) {
         </div>
         <div class="course-management-card-actions">
           ${renderHealthBadge(project, true)}
-          <button type="button" onclick="event.stopPropagation(); app.openProject('${escapeJsAttr(project.id)}')"><i class="fa-solid fa-pen-to-square"></i></button>
-          <button type="button" onclick="event.stopPropagation(); app.deleteProject('${escapeJsAttr(project.id)}')"><i class="fa-solid fa-trash-can"></i></button>
+          <button type="button" aria-label="เปิดแก้ไขหลักสูตร ${escapeHTML(project.name || project.id)}" onclick="event.stopPropagation(); app.openProject('${escapeJsAttr(project.id)}')"><i class="fa-solid fa-pen-to-square" aria-hidden="true"></i></button>
+          <button type="button" aria-label="ลบหลักสูตร ${escapeHTML(project.name || project.id)}" onclick="event.stopPropagation(); app.deleteProject('${escapeJsAttr(project.id)}')"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
         </div>
       </article>`;
   }).join('');

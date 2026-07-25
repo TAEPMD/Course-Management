@@ -25,7 +25,7 @@
             <div class="flex items-center space-x-3 min-w-0">
                 <div id="logo-container" class="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-blue-900 shadow-lg overflow-hidden flex-shrink-0">
                     <i id="logo-icon" class="fa-solid fa-star-of-life text-xl"></i>
-                    <img id="logo-img" src="" class="hidden w-full h-full object-cover">
+                    <img id="logo-img" src="" alt="โลโก้หน่วยงาน" class="hidden w-full h-full object-cover">
                 </div>
                 <div id="sidebar-brand-text" class="min-w-0">
                     <h1 class="font-bold text-lg leading-tight truncate max-w-[140px]" id="display-site-name">NIEM</h1>
@@ -102,7 +102,7 @@
                 <!-- Mobile logo -->
                 <div class="md:hidden flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50 overflow-hidden shrink-0">
                     <i id="header-logo-icon" class="fa-solid fa-star-of-life text-blue-900 text-sm"></i>
-                    <img id="header-logo-img" src="" class="hidden w-full h-full object-cover">
+                    <img id="header-logo-img" src="" alt="โลโก้หน่วยงาน" class="hidden w-full h-full object-cover">
                 </div>
                 <h2 id="header-title" class="font-bold text-gray-800 dark:text-gray-100 text-sm md:text-base">หน้าแรก</h2>
             </div>
@@ -620,7 +620,7 @@
                         <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">โลโก้หน่วยงาน (สพฉ.)</label>
                         <div class="flex flex-col md:flex-row items-center gap-6 p-6 bg-slate-50 dark:bg-slate-900/50 rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-700">
                             <div class="w-24 h-24 bg-white dark:bg-slate-800 rounded-2xl shadow-lg flex items-center justify-center overflow-hidden border border-gray-100">
-                                <img id="preview-logo" src="" class="hidden w-full h-full object-contain p-2">
+                                <img id="preview-logo" src="" alt="ตัวอย่างโลโก้ที่เลือก" class="hidden w-full h-full object-contain p-2">
                                 <i id="preview-icon" class="fa-solid fa-image text-4xl text-gray-200"></i>
                             </div>
                             <div class="flex-1 space-y-4">
@@ -1161,7 +1161,7 @@
             <div class="bg-white rounded-t-[24px] sm:rounded-[24px] shadow-2xl w-full max-w-md overflow-y-auto max-h-[92vh] animate-scale-in">
                 <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                     <h3 id="user-modal-title" class="font-bold text-gray-800 text-lg">เพิ่มผู้ใช้ใหม่</h3>
-                    <button onclick="document.getElementById('user-modal').classList.add('hidden')" class="text-gray-400 hover:text-red-500 transition"><i class="fa-solid fa-times text-xl"></i></button>
+                    <button aria-label="ปิดหน้าต่าง" onclick="document.getElementById('user-modal').classList.add('hidden')" class="text-gray-400 hover:text-red-500 transition"><i class="fa-solid fa-times text-xl" aria-hidden="true"></i></button>
                 </div>
                 <div class="p-6 space-y-4">
                     <input type="hidden" id="modal-user-id">

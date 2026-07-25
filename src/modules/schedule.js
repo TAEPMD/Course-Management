@@ -109,8 +109,9 @@ export function renderScheduleSessions() {
         <input type="text" value="${escapeHTML(s.venue||'')}" data-idx="${idx}" data-field="venue"
           class="session-input w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
       </div>
-      <button data-del="${idx}" class="btn-del-session mt-5 w-8 h-8 flex items-center justify-center text-red-400 hover:bg-red-50 rounded-xl transition shrink-0">
-        <i class="fa-solid fa-trash text-xs"></i>
+      <button data-del="${idx}" aria-label="ลบรอบอบรม ${escapeHTML(s.name || `ลำดับที่ ${idx + 1}`)}"
+        class="btn-del-session mt-5 w-8 h-8 flex items-center justify-center text-red-400 hover:bg-red-50 rounded-xl transition shrink-0">
+        <i class="fa-solid fa-trash text-xs" aria-hidden="true"></i>
       </button>`;
     container.appendChild(row);
   });
