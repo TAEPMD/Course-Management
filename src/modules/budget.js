@@ -8,14 +8,23 @@ import { escapeHTML, formatCurrency } from '../utils/format.js';
 import * as gas from '../gas.js';
 import {
   ACCOUNT_TYPES,
-  BUDGET_STATUSES,
   CATEGORIES,
   NEXT_ACTION_LABELS,
   WORKFLOW,
+  canApproveBudget,
+  canEditEntry,
+  canRequestBudget,
+  checkBudgetCap,
   checkStatusChange,
   clampPct,
+  describeFieldChange,
+  ensureEntryId,
+  ensureLedgerIds,
+  findEntryById,
+  findEntryIndexById,
   formatBudgetMonth,
   formatHistoryTime,
+  getAllowedTransitions,
   getAttachments,
   getBillAging,
   getBillEntries,
@@ -30,12 +39,19 @@ import {
   getNextStatus,
   getStatusBreakdown,
   getStatusMeta,
+  normalizeAmount,
   todayISO,
+  validateEntry,
 } from '../utils/budgetWorkflow.js';
 
 const MAX_EVIDENCE_SIZE = 4 * 1024 * 1024; // GAS payload limit ~ keep files under 4MB
 
-let modalEntryIdx = null;
+/** id ของรายการที่เปิดใน modal — ใช้ id ไม่ใช่ลำดับ เพราะลำดับเลื่อนได้เมื่อมีการลบ */
+let modalEntryId = null;
+
+function currentRole() {
+  return state.currentUserRole || 'Trainee';
+}
 
 function refreshProjectIndicatorsIfAvailable() {
   if (typeof window !== 'undefined') window.app?.refreshProjectIndicators?.();
@@ -49,6 +65,66 @@ function recordHistory(entry, text) {
     text
   });
   if (entry.history.length > 50) entry.history = entry.history.slice(-50);
+}
+
+function denyToast(title, text) {
+  Swal.fire({ icon: 'error', title, text, toast: true, position: 'top-end', timer: 3200, showConfirmButton: false });
+}
+
+// ── บันทึกอัตโนมัติ ─────────────────────────────────────────────────────────
+//
+// เดิมการแก้ ledger ค้างอยู่ในหน้าจอเฉย ๆ จนกว่าจะกด "บันทึกงบประมาณ"
+// ปิดแท็บไปก่อน = ข้อมูลหาย ตอนนี้ทุกการแก้จะตั้งเวลาบันทึกให้เอง
+
+const AUTOSAVE_DELAY_MS = 1500;
+let autosaveTimer = null;
+let saveState = 'saved'; // saved | dirty | saving | error
+
+function setSaveState(next) {
+  saveState = next;
+  const el = document.getElementById('budget-save-state');
+  if (!el) return;
+  const cfg = {
+    saved:  { text: 'บันทึกแล้ว',          cls: 'text-emerald-600', icon: 'fa-circle-check' },
+    dirty:  { text: 'ยังไม่ได้บันทึก',      cls: 'text-amber-600',   icon: 'fa-pen' },
+    saving: { text: 'กำลังบันทึก...',       cls: 'text-blue-600',    icon: 'fa-spinner fa-spin' },
+    error:  { text: 'บันทึกไม่สำเร็จ',      cls: 'text-rose-600',    icon: 'fa-triangle-exclamation' },
+  }[next] || {};
+  el.className = `text-[11px] font-bold inline-flex items-center gap-1.5 ${cfg.cls || ''}`;
+  el.innerHTML = `<i class="fa-solid ${cfg.icon}" aria-hidden="true"></i>${escapeHTML(cfg.text || '')}`;
+}
+
+export function hasUnsavedBudgetChanges() {
+  return saveState === 'dirty' || saveState === 'saving' || saveState === 'error';
+}
+
+/** เรียกหลังแก้ข้อมูลทุกครั้ง — รวบการแก้รัว ๆ ให้ยิงบันทึกครั้งเดียว */
+function markDirty() {
+  setSaveState('dirty');
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => { flushBudgetSave(); }, AUTOSAVE_DELAY_MS);
+}
+
+async function flushBudgetSave() {
+  clearTimeout(autosaveTimer);
+  const p = state.currentProject;
+  if (!p) return;
+  setSaveState('saving');
+  try {
+    p.updatedAt = new Date().toISOString();
+    await gas.saveProject(p);
+    setSaveState('saved');
+  } catch {
+    setSaveState('error');
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', e => {
+    if (!hasUnsavedBudgetChanges()) return;
+    e.preventDefault();
+    e.returnValue = '';
+  });
 }
 
 
@@ -76,13 +152,55 @@ const STATUS_CHANGE_PROMPTS = {
     confirmButtonText: 'ไม่อนุมัติ',
     cancelButtonText: 'ยกเลิก',
     confirmButtonColor: '#dc2626'
+  },
+  'confirm-revert': {
+    title: 'ย้อนสถานะกลับหนึ่งขั้น?',
+    text: 'ใช้สำหรับแก้กรณีกดผิดเท่านั้น การย้อนจะถูกบันทึกในประวัติรายการ',
+    confirmButtonText: 'ย้อนกลับ',
+    cancelButtonText: 'ยกเลิก',
+    confirmButtonColor: '#b45309'
   }
+};
+
+const STATUS_CHANGE_ERRORS = {
+  'not-allowed': {
+    title: 'ข้ามขั้นตอนไม่ได้',
+    text: 'ต้องเดินตามลำดับ ขออนุมัติ → อนุมัติ → ก่อหนี้ → วางบิล → ตั้งเบิก → จ่ายแล้ว ทีละขั้น'
+  },
+  'no-permission': {
+    title: 'ไม่มีสิทธิ์ดำเนินการ',
+    text: 'การอนุมัติและเดินสถานะเบิกจ่ายทำได้เฉพาะ Admin และ Staff'
+  },
+  'unknown-status': { title: 'สถานะไม่ถูกต้อง', text: 'ไม่รู้จักสถานะที่เลือก' }
 };
 
 async function requestStatusChange(entry, next) {
   const current = getEntryStatus(entry);
-  const { ok, warning } = checkStatusChange(entry, next);
+  const { ok, warning, error } = checkStatusChange(entry, next, currentRole());
+
+  if (error) {
+    const cfg = STATUS_CHANGE_ERRORS[error];
+    if (cfg) denyToast(cfg.title, cfg.text);
+    return false;
+  }
   if (!ok) return false;
+
+  // ห้ามเดินหน้าด้วยข้อมูลที่ยังไม่ครบ (ยอด 0 / ไม่มีชื่อรายการ ฯลฯ)
+  if (next !== 'rejected') {
+    const problems = validateEntry({ ...entry, status: next });
+    if (problems.length) {
+      const res = await Swal.fire({
+        icon: 'warning',
+        title: 'ข้อมูลรายการยังไม่ครบ',
+        html: `<ul class="text-left text-sm space-y-1">${problems.map(p => `<li>• ${escapeHTML(p)}</li>`).join('')}</ul>`,
+        showCancelButton: true,
+        confirmButtonText: 'ดำเนินการต่อ',
+        cancelButtonText: 'กลับไปแก้ก่อน',
+        confirmButtonColor: '#1e3a8a'
+      });
+      if (!res.isConfirmed) return false;
+    }
+  }
 
   const currentLabel = getStatusMeta(current).label;
   const nextLabel = getStatusMeta(next).label;
@@ -95,7 +213,9 @@ async function requestStatusChange(entry, next) {
 
   entry.status = next;
   if (next === 'paid' && !entry.paidDate) entry.paidDate = todayISO();
-  recordHistory(entry, `เปลี่ยนสถานะ: ${currentLabel} → ${nextLabel}`);
+  const verb = warning === 'confirm-revert' ? 'ย้อนสถานะ' : 'เปลี่ยนสถานะ';
+  recordHistory(entry, `${verb}: ${currentLabel} → ${nextLabel}`);
+  markDirty();
   return true;
 }
 
@@ -108,75 +228,99 @@ export function renderBudgetLedger() {
   const tbody = document.getElementById('budget-ledger-body');
   if (!tbody) return;
 
+  // ข้อมูลเก่าที่บันทึกไว้ก่อนมีระบบ id — เติมให้ก่อนเรนเดอร์
+  // ไม่ markDirty ตรงนี้ เพราะแค่ "เปิดดู" ไม่ควรยิงบันทึก (ผู้ใช้ที่ดูอย่างเดียวจะเจอ error)
+  // id จะถูกบันทึกไปพร้อมการแก้ไขจริงครั้งถัดไปเอง
+  ensureLedgerIds(p);
+
+  const role = currentRole();
+
   tbody.innerHTML = '';
   if (!p.ledger.length) {
     tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-gray-300 font-bold">ยังไม่มีรายการ — กดปุ่ม "เพิ่มรายการ"</td></tr>`;
   } else {
-    p.ledger.forEach((entry, idx) => {
+    p.ledger.forEach(entry => {
+      const id = entry.id;
       const type = getEntryType(entry);
       const status = getEntryStatus(entry);
       const statusMeta = getStatusMeta(status);
       const amountClass = type === 'income' ? 'text-emerald-700' : 'text-rose-700';
-      const nextStatus = type === 'expense' && status !== 'rejected' ? getNextStatus(entry) : null;
+      const editable = canEditEntry(entry, role);
+      const lockAttr = editable ? '' : 'disabled';
+      // เลือกได้เฉพาะสถานะปัจจุบัน + สถานะที่ย้ายไปได้จริง (กันข้ามขั้น)
+      const transitions = getAllowedTransitions(entry, role);
+      const statusOptions = [status, ...transitions];
+      const nextStatus = transitions.includes(getNextStatus(entry)) ? getNextStatus(entry) : null;
+      const problems = validateEntry(entry);
       const attachCount = getAttachments(entry).length;
       const tr = document.createElement('tr');
       tr.className = 'hover:bg-slate-50/50 transition-colors';
+      tr.dataset.entryId = id;
       tr.innerHTML = `
         <td class="px-4 py-3">
-          <input type="date" value="${escapeHTML(entry.date||'')}" data-idx="${idx}" data-field="date"
-            class="ledger-input bg-transparent border-none text-xs font-medium text-gray-600 outline-none w-28">
+          <input type="date" value="${escapeHTML(entry.date||'')}" data-id="${escapeHTML(id)}" data-field="date" ${lockAttr}
+            class="ledger-input bg-transparent border-none text-xs font-medium text-gray-600 outline-none w-28 disabled:opacity-60">
         </td>
         <td class="px-4 py-3">
-          <select data-idx="${idx}" data-field="type"
-            class="ledger-input bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none">
+          <select data-id="${escapeHTML(id)}" data-field="type" ${lockAttr}
+            class="ledger-input bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-60">
             ${ACCOUNT_TYPES.map(t => `<option value="${t.value}" ${type===t.value?'selected':''}>${t.label}</option>`).join('')}
           </select>
         </td>
         <td class="px-4 py-3 min-w-[220px]">
-          <input type="text" value="${escapeHTML(entry.desc||'')}" data-idx="${idx}" data-field="desc" placeholder="รายละเอียด"
-            class="ledger-input bg-transparent border-none text-sm font-bold text-gray-800 outline-none w-full">
-          <input type="text" value="${escapeHTML(entry.payee||'')}" data-idx="${idx}" data-field="payee" placeholder="ผู้รับเงิน/หน่วยงาน"
-            class="ledger-input mt-1 bg-transparent border-none text-[11px] text-gray-400 outline-none w-full">
+          <input type="text" value="${escapeHTML(entry.desc||'')}" data-id="${escapeHTML(id)}" data-field="desc" placeholder="รายละเอียด" ${lockAttr}
+            class="ledger-input bg-transparent border-none text-sm font-bold text-gray-800 outline-none w-full disabled:opacity-60">
+          <input type="text" value="${escapeHTML(entry.payee||'')}" data-id="${escapeHTML(id)}" data-field="payee" placeholder="ผู้รับเงิน/หน่วยงาน" ${lockAttr}
+            class="ledger-input mt-1 bg-transparent border-none text-[11px] text-gray-400 outline-none w-full disabled:opacity-60">
+          ${problems.length ? `<p class="mt-1 text-[10px] font-bold text-amber-600" title="${escapeHTML(problems.join(' • '))}"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> ${escapeHTML(problems[0])}</p>` : ''}
         </td>
         <td class="px-4 py-3">
-          <select data-idx="${idx}" data-field="cat"
-            class="ledger-input bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none">
-            ${CATEGORIES.map(c => `<option value="${c}" ${entry.cat===c?'selected':''}>${c}</option>`).join('')}
+          <select data-id="${escapeHTML(id)}" data-field="cat" ${lockAttr}
+            class="ledger-input bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-60">
+            ${CATEGORIES.map(c => `<option value="${escapeHTML(c)}" ${entry.cat===c?'selected':''}>${escapeHTML(c)}</option>`).join('')}
           </select>
         </td>
         <td class="px-4 py-3">
-          <select data-idx="${idx}" data-field="status"
-            class="ledger-input border border-gray-100 rounded-lg px-2 py-1 text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none ${statusMeta.tone}">
-            ${BUDGET_STATUSES.map(s => `<option value="${s.value}" ${status===s.value?'selected':''}>${s.label}</option>`).join('')}
+          <select data-id="${escapeHTML(id)}" data-field="status" ${statusOptions.length > 1 ? '' : 'disabled'}
+            title="${statusOptions.length > 1 ? 'เปลี่ยนได้ทีละขั้นตามลำดับเท่านั้น' : 'คุณไม่มีสิทธิ์เปลี่ยนสถานะรายการนี้'}"
+            class="ledger-input border border-gray-100 rounded-lg px-2 py-1 text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-70 ${statusMeta.tone}">
+            ${statusOptions.map(value => {
+              const meta = getStatusMeta(value);
+              return `<option value="${value}" ${status===value?'selected':''}>${escapeHTML(meta.label)}</option>`;
+            }).join('')}
           </select>
           ${status === 'paid' && entry.paidDate ? `<p class="mt-1 text-[10px] text-emerald-600 font-bold">จ่ายเมื่อ ${escapeHTML(entry.paidDate)}</p>` : ''}
         </td>
         <td class="px-4 py-3 min-w-[170px]">
-          <input type="text" value="${escapeHTML(entry.docNo||'')}" data-idx="${idx}" data-field="docNo" placeholder="เลขที่เอกสาร/ใบแจ้งหนี้"
-            class="ledger-input bg-white border border-gray-100 rounded-lg px-2 py-1 text-xs font-bold text-gray-700 outline-none w-full focus:ring-2 focus:ring-blue-500">
-          <input type="date" value="${escapeHTML(entry.dueDate||'')}" data-idx="${idx}" data-field="dueDate"
-            class="ledger-input mt-1 bg-white border border-gray-100 rounded-lg px-2 py-1 text-xs text-gray-500 outline-none w-full focus:ring-2 focus:ring-blue-500">
+          <input type="text" value="${escapeHTML(entry.docNo||'')}" data-id="${escapeHTML(id)}" data-field="docNo" placeholder="เลขที่เอกสาร/ใบแจ้งหนี้" ${lockAttr}
+            class="ledger-input bg-white border border-gray-100 rounded-lg px-2 py-1 text-xs font-bold text-gray-700 outline-none w-full focus:ring-2 focus:ring-blue-500 disabled:opacity-60">
+          <input type="date" value="${escapeHTML(entry.dueDate||'')}" data-id="${escapeHTML(id)}" data-field="dueDate" ${lockAttr}
+            class="ledger-input mt-1 bg-white border border-gray-100 rounded-lg px-2 py-1 text-xs text-gray-500 outline-none w-full focus:ring-2 focus:ring-blue-500 disabled:opacity-60">
         </td>
         <td class="px-4 py-3 text-right">
-          <input type="number" value="${entry.amount||0}" data-idx="${idx}" data-field="amount"
-            class="ledger-input bg-transparent border-none text-sm font-black ${amountClass} text-right outline-none w-28">
+          <input type="number" min="0" step="0.01" value="${entry.amount||0}" data-id="${escapeHTML(id)}" data-field="amount" ${lockAttr}
+            class="ledger-input bg-transparent border-none text-sm font-black ${amountClass} text-right outline-none w-28 disabled:opacity-60">
         </td>
         <td class="px-4 py-3">
           <div class="flex items-center justify-center gap-1">
             ${nextStatus ? `
-              <button data-next="${idx}" title="${NEXT_ACTION_LABELS[status] || 'ไปขั้นถัดไป'}"
+              <button data-next="${escapeHTML(id)}" title="${NEXT_ACTION_LABELS[status] || 'ไปขั้นถัดไป'}"
+                aria-label="${escapeHTML((NEXT_ACTION_LABELS[status] || 'ไปขั้นถัดไป') + ': ' + (entry.desc || 'รายการนี้'))}"
                 class="btn-next-ledger w-7 h-7 flex items-center justify-center text-blue-600 hover:bg-blue-50 rounded-lg transition">
-                <i class="fa-solid fa-forward-step text-xs"></i>
+                <i class="fa-solid fa-forward-step text-xs" aria-hidden="true"></i>
               </button>` : ''}
-            <button data-open="${idx}" title="รายละเอียด / หลักฐาน / ประวัติ"
+            <button data-open="${escapeHTML(id)}" title="รายละเอียด / หลักฐาน / ประวัติ"
+              aria-label="เปิดรายละเอียด ${escapeHTML(entry.desc || 'รายการนี้')}"
               class="btn-open-ledger relative w-7 h-7 flex items-center justify-center text-slate-600 hover:bg-slate-100 rounded-lg transition">
-              <i class="fa-solid fa-paperclip text-xs"></i>
+              <i class="fa-solid fa-paperclip text-xs" aria-hidden="true"></i>
               ${attachCount ? `<span class="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-blue-600 text-white text-[9px] font-black flex items-center justify-center">${attachCount}</span>` : ''}
             </button>
-            <button data-del="${idx}" title="ลบรายการ"
+            ${editable ? `
+            <button data-del="${escapeHTML(id)}" title="ลบรายการ"
+              aria-label="ลบรายการ ${escapeHTML(entry.desc || 'ที่ยังไม่ระบุชื่อ')}"
               class="btn-del-ledger w-7 h-7 flex items-center justify-center text-red-400 hover:bg-red-50 rounded-lg transition">
-              <i class="fa-solid fa-trash text-xs"></i>
-            </button>
+              <i class="fa-solid fa-trash text-xs" aria-hidden="true"></i>
+            </button>` : ''}
           </div>
         </td>`;
       tbody.appendChild(tr);
@@ -184,28 +328,63 @@ export function renderBudgetLedger() {
   }
   // Bind events
   tbody.querySelectorAll('.ledger-input').forEach(el => {
-    el.addEventListener('change', e => {
-      const idx = +e.target.dataset.idx;
+    el.addEventListener('change', async e => {
       const field = e.target.dataset.field;
-      const entry = p.ledger[idx];
+      const entry = findEntryById(p, e.target.dataset.id);
       if (!entry) return;
+
       if (field === 'status') {
-        requestStatusChange(entry, e.target.value).then(() => {
-          renderBudgetLedger();
-          refreshProjectIndicatorsIfAvailable();
-        });
+        const changed = await requestStatusChange(entry, e.target.value);
+        if (!changed) e.target.value = getEntryStatus(entry); // คืนค่าเดิมถ้าไม่ผ่านด่าน
+        renderBudgetLedger();
+        refreshProjectIndicatorsIfAvailable();
         return;
       }
-      entry[field] = field === 'amount' ? +e.target.value : e.target.value;
-      if (field === 'amount' || field === 'type' || field === 'dueDate' || field === 'docNo') renderBudgetLedger();
-      else renderBudgetSummary();
+
+      if (!canEditEntry(entry, currentRole())) {
+        denyToast('แก้ไขไม่ได้', 'รายการที่อนุมัติแล้วแก้ได้เฉพาะผู้มีสิทธิ์อนุมัติ');
+        renderBudgetLedger();
+        return;
+      }
+
+      const before = entry[field];
+      const after = field === 'amount' ? normalizeAmount(e.target.value) : e.target.value;
+
+      // เกินวงเงินต้องยืนยันก่อน — กันตั้งยอดผูกพันเกินงบโดยไม่รู้ตัว
+      if (field === 'amount' && getEntryType(entry) === 'expense' && after > Number(before || 0)) {
+        const cap = checkBudgetCap(p, entry, after, currentBudgetValue());
+        if (cap.exceeds) {
+          const res = await Swal.fire({
+            icon: 'warning',
+            title: 'ยอดผูกพันจะเกินวงเงิน',
+            html: `<div class="text-sm text-left space-y-1">
+              <p>วงเงินรวม <strong>${formatCurrency(cap.totalIncome)}</strong> บาท</p>
+              <p>ผูกพันหลังแก้ <strong class="text-rose-600">${formatCurrency(cap.committed)}</strong> บาท</p>
+              <p>เกินไป <strong class="text-rose-600">${formatCurrency(cap.overBy)}</strong> บาท</p>
+            </div>`,
+            showCancelButton: true,
+            confirmButtonText: 'ยืนยันตามนี้',
+            cancelButtonText: 'กลับไปแก้',
+            confirmButtonColor: '#dc2626'
+          });
+          if (!res.isConfirmed) { renderBudgetLedger(); return; }
+          recordHistory(entry, `ตั้งยอดเกินวงเงิน ${formatCurrency(cap.overBy)} บาท (ยืนยันโดยผู้ใช้)`);
+        }
+      }
+
+      entry[field] = after;
+      const note = describeFieldChange(field, before, after);
+      if (note) recordHistory(entry, note);
+      markDirty();
+
+      renderBudgetLedger();
       refreshProjectIndicatorsIfAvailable();
     });
   });
   tbody.querySelectorAll('.btn-next-ledger').forEach(btn => {
     btn.addEventListener('click', () => {
-      const entry = p.ledger[+btn.dataset.next];
-      const next = getNextStatus(entry);
+      const entry = findEntryById(p, btn.dataset.next);
+      const next = entry && getNextStatus(entry);
       if (!next) return;
       requestStatusChange(entry, next).then(changed => {
         if (!changed) return;
@@ -215,23 +394,33 @@ export function renderBudgetLedger() {
     });
   });
   tbody.querySelectorAll('.btn-open-ledger').forEach(btn => {
-    btn.addEventListener('click', () => openBudgetEntry(+btn.dataset.open));
+    btn.addEventListener('click', () => openBudgetEntry(btn.dataset.open));
   });
   tbody.querySelectorAll('.btn-del-ledger').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const idx = +btn.dataset.del;
-      const entry = p.ledger[idx];
+      const id = btn.dataset.del;
+      const entry = findEntryById(p, id);
+      if (!entry) return;
+      if (!canEditEntry(entry, currentRole())) {
+        denyToast('ลบไม่ได้', 'รายการที่อนุมัติแล้วลบได้เฉพาะผู้มีสิทธิ์อนุมัติ');
+        return;
+      }
       const res = await Swal.fire({
         icon: 'warning',
         title: 'ลบรายการนี้?',
-        text: entry?.desc ? `"${entry.desc}" จะถูกลบพร้อมหลักฐานและประวัติ` : 'รายการจะถูกลบพร้อมหลักฐานและประวัติ',
+        text: entry.desc ? `"${entry.desc}" จะถูกลบพร้อมหลักฐานและประวัติ` : 'รายการจะถูกลบพร้อมหลักฐานและประวัติ',
         showCancelButton: true,
         confirmButtonText: 'ลบรายการ',
         cancelButtonText: 'ยกเลิก',
         confirmButtonColor: '#dc2626'
       });
       if (!res.isConfirmed) return;
+      // หา index ใหม่ตอนจะลบจริง เผื่อ ledger เปลี่ยนไประหว่างรอผู้ใช้ยืนยัน
+      const idx = findEntryIndexById(p, id);
+      if (idx < 0) return;
       p.ledger.splice(idx, 1);
+      if (modalEntryId === id) closeBudgetEntryModal();
+      markDirty();
       renderBudgetLedger();
       refreshProjectIndicatorsIfAvailable();
     });
@@ -239,11 +428,23 @@ export function renderBudgetLedger() {
   renderBudgetSummary();
 }
 
+/** วงเงินที่กรอกไว้ในหน้าจอ (ถ้ายังไม่ได้กดบันทึก จะยังไม่อยู่ใน project) */
+function currentBudgetValue() {
+  const input = document.getElementById('input-proj-budget');
+  if (!input) return undefined;
+  return Math.max(0, Number(input.value) || 0);
+}
+
 export function addBudgetEntry() {
   const p = state.currentProject;
   if (!p) return;
+  if (!canRequestBudget(currentRole())) {
+    denyToast('ไม่มีสิทธิ์เพิ่มรายการ', 'การตั้งเรื่องขอเบิกทำได้เฉพาะ Admin, Staff และ Instructor');
+    return;
+  }
   if (!p.ledger) p.ledger = [];
   const entry = {
+    id: '',
     date: todayISO(),
     type: 'expense',
     status: 'requested',
@@ -260,8 +461,10 @@ export function addBudgetEntry() {
     attachments: [],
     history: []
   };
+  ensureEntryId(entry);
   recordHistory(entry, 'สร้างรายการ (ขออนุมัติ)');
   p.ledger.push(entry);
+  markDirty();
   renderBudgetLedger();
   refreshProjectIndicatorsIfAvailable();
 }
@@ -298,9 +501,10 @@ function renderBillingPanel(project) {
           <h4 class="font-bold text-gray-800">ทะเบียนคุมวางบิล (บัญชีเจ้าหนี้)</h4>
           <p class="text-xs text-gray-400 mt-0.5">ติดตามใบวางบิล/ใบแจ้งหนี้ที่รับเข้ามา อายุหนี้ และกำหนดจ่าย</p>
         </div>
+        ${canApproveBudget(currentRole()) ? `
         <button id="budget-bill-intake-btn" class="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:scale-105 transition shrink-0">
-          <i class="fa-solid fa-file-invoice mr-1"></i>รับวางบิล
-        </button>
+          <i class="fa-solid fa-file-invoice mr-1" aria-hidden="true"></i>รับวางบิล
+        </button>` : ''}
       </div>
       <div class="p-5 grid grid-cols-2 xl:grid-cols-4 gap-3">
         ${chips.map(chip => `
@@ -342,8 +546,8 @@ function renderBillingPanel(project) {
                   <td class="px-4 py-3 text-right text-sm font-black text-rose-700">${formatCurrency(Number(entry.amount || 0))}</td>
                   <td class="px-4 py-3">
                     <div class="flex items-center justify-center gap-1">
-                      ${next ? `<button data-bill-next="${index}" title="${NEXT_ACTION_LABELS[status] || 'ไปขั้นถัดไป'}" class="w-7 h-7 flex items-center justify-center text-blue-600 hover:bg-blue-50 rounded-lg transition"><i class="fa-solid fa-forward-step text-xs"></i></button>` : ''}
-                      <button data-bill-open="${index}" title="รายละเอียด / หลักฐาน" class="w-7 h-7 flex items-center justify-center text-slate-600 hover:bg-slate-100 rounded-lg transition"><i class="fa-solid fa-paperclip text-xs"></i></button>
+                      ${next ? `<button data-bill-next="${escapeHTML(entry.id)}" title="${escapeHTML(NEXT_ACTION_LABELS[status] || 'ไปขั้นถัดไป')}" aria-label="${escapeHTML((NEXT_ACTION_LABELS[status] || 'ไปขั้นถัดไป') + ': ' + (entry.desc || 'บิลนี้'))}" class="w-7 h-7 flex items-center justify-center text-blue-600 hover:bg-blue-50 rounded-lg transition"><i class="fa-solid fa-forward-step text-xs" aria-hidden="true"></i></button>` : ''}
+                      <button data-bill-open="${escapeHTML(entry.id)}" title="รายละเอียด / หลักฐาน" aria-label="เปิดรายละเอียด ${escapeHTML(entry.desc || 'บิลนี้')}" class="w-7 h-7 flex items-center justify-center text-slate-600 hover:bg-slate-100 rounded-lg transition"><i class="fa-solid fa-paperclip text-xs" aria-hidden="true"></i></button>
                     </div>
                   </td>
                 </tr>`;
@@ -355,12 +559,12 @@ function renderBillingPanel(project) {
 
   panel.querySelector('#budget-bill-intake-btn')?.addEventListener('click', () => openBillIntake());
   panel.querySelectorAll('[data-bill-open]').forEach(btn => {
-    btn.addEventListener('click', () => openBudgetEntry(+btn.dataset.billOpen));
+    btn.addEventListener('click', () => openBudgetEntry(btn.dataset.billOpen));
   });
   panel.querySelectorAll('[data-bill-next]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const entry = project.ledger[+btn.dataset.billNext];
-      const next = getNextStatus(entry);
+      const entry = findEntryById(project, btn.dataset.billNext);
+      const next = entry && getNextStatus(entry);
       if (!next) return;
       requestStatusChange(entry, next).then(changed => {
         if (!changed) return;
@@ -374,9 +578,15 @@ function renderBillingPanel(project) {
 export async function openBillIntake() {
   const p = state.currentProject;
   if (!p) return;
+  // การรับวางบิลดันสถานะไปถึง "วางบิลแล้ว" จึงถือเป็นการอนุมัติ
+  if (!canApproveBudget(currentRole())) {
+    denyToast('ไม่มีสิทธิ์รับวางบิล', 'การรับวางบิลทำได้เฉพาะ Admin และ Staff');
+    return;
+  }
   if (!p.ledger) p.ledger = [];
+  ensureLedgerIds(p);
   const eligible = p.ledger
-    .map((entry, index) => ({ entry, index }))
+    .map(entry => ({ entry }))
     .filter(({ entry }) => getEntryType(entry) === 'expense' && ['requested', 'approved', 'obligated'].includes(getEntryStatus(entry)));
 
   const inputClass = 'w-full border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-indigo-500';
@@ -389,7 +599,7 @@ export async function openBillIntake() {
         <label class="${labelClass}">ผูกกับรายการงบประมาณ</label>
         <select id="bill-link" class="${inputClass}">
           <option value="new">— สร้างรายการรายจ่ายใหม่ —</option>
-          ${eligible.map(({ entry, index }) => `<option value="${index}">${escapeHTML(entry.desc || 'ไม่มีชื่อ')} • ${formatCurrency(Number(entry.amount || 0))} (${getStatusMeta(getEntryStatus(entry)).label})</option>`).join('')}
+          ${eligible.map(({ entry }) => `<option value="${escapeHTML(entry.id)}">${escapeHTML(entry.desc || 'ไม่มีชื่อ')} • ${formatCurrency(Number(entry.amount || 0))} (${escapeHTML(getStatusMeta(getEntryStatus(entry)).label)})</option>`).join('')}
         </select>
         <label class="${labelClass}">รายการ</label>
         <input id="bill-desc" class="${inputClass}" placeholder="เช่น ค่าอาหารว่างผู้อบรม">
@@ -465,27 +675,52 @@ export async function openBillIntake() {
   let entry;
   if (data.link === 'new') {
     entry = {
+      id: '',
       date: data.billDate || todayISO(),
       type: 'expense',
       status: 'requested',
       desc: '', cat: 'อื่นๆ', payee: '', docNo: '', billDate: '', dueDate: '', paidDate: '', payRef: '', note: '',
       amount: 0, attachments: [], history: []
     };
+    ensureEntryId(entry);
     recordHistory(entry, 'สร้างรายการจากใบวางบิล');
     p.ledger.push(entry);
   } else {
-    entry = p.ledger[+data.link];
+    entry = findEntryById(p, data.link);
     if (!entry) return;
   }
+
+  // ยอดวางบิลอาจดันยอดผูกพันเกินวงเงิน — ให้ยืนยันก่อน แล้วบันทึกไว้ในประวัติ
+  const cap = checkBudgetCap(p, entry, data.amount, currentBudgetValue());
+  if (cap.exceeds) {
+    const confirm = await Swal.fire({
+      icon: 'warning',
+      title: 'ยอดผูกพันจะเกินวงเงิน',
+      html: `<div class="text-sm text-left space-y-1">
+        <p>วงเงินรวม <strong>${formatCurrency(cap.totalIncome)}</strong> บาท</p>
+        <p>ผูกพันหลังรับวางบิล <strong class="text-rose-600">${formatCurrency(cap.committed)}</strong> บาท</p>
+        <p>เกินไป <strong class="text-rose-600">${formatCurrency(cap.overBy)}</strong> บาท</p>
+      </div>`,
+      showCancelButton: true,
+      confirmButtonText: 'รับวางบิลต่อ',
+      cancelButtonText: 'ยกเลิก',
+      confirmButtonColor: '#dc2626'
+    });
+    if (!confirm.isConfirmed) return;
+  }
+
+  const fromStatus = getStatusMeta(getEntryStatus(entry)).label;
   entry.desc = data.desc || entry.desc || 'รายการจากใบวางบิล';
   entry.payee = data.payee || entry.payee || '';
   entry.cat = data.cat || entry.cat || 'อื่นๆ';
   entry.docNo = data.docNo;
   entry.billDate = data.billDate;
   entry.dueDate = data.dueDate;
-  entry.amount = data.amount;
+  entry.amount = normalizeAmount(data.amount);
   entry.status = 'billed';
-  recordHistory(entry, `รับวางบิล เลขที่ ${data.docNo} (ครบกำหนด ${data.dueDate || 'ไม่ระบุ'})`);
+  recordHistory(entry, `รับวางบิล เลขที่ ${data.docNo} (ครบกำหนด ${data.dueDate || 'ไม่ระบุ'}) — สถานะ ${fromStatus} → วางบิลแล้ว`);
+  if (cap.exceeds) recordHistory(entry, `รับวางบิลเกินวงเงิน ${formatCurrency(cap.overBy)} บาท (ยืนยันโดยผู้ใช้)`);
+  markDirty();
 
   renderBudgetLedger();
   refreshProjectIndicatorsIfAvailable();
@@ -497,13 +732,17 @@ export async function openBillIntake() {
 export async function saveBudgetToCloud() {
   const p = state.currentProject;
   if (!p) return;
+  clearTimeout(autosaveTimer); // กันบันทึกซ้ำจาก autosave ที่ตั้งคิวไว้
   const budgetInput = document.getElementById('input-proj-budget');
   if (budgetInput) p.budget = Math.max(0, Number(budgetInput.value) || 0);
   p.updatedAt = new Date().toISOString();
+  setSaveState('saving');
   try {
     await gas.saveProject(p);
+    setSaveState('saved');
     Swal.fire({ icon: 'success', title: 'บันทึกงบประมาณแล้ว', toast: true, position: 'top-end', timer: 1800, showConfirmButton: false });
   } catch (e) {
+    setSaveState('error');
     Swal.fire({ icon: 'error', title: 'บันทึกล้มเหลว', text: e.message });
   }
 }
@@ -511,9 +750,13 @@ export async function saveBudgetToCloud() {
 async function persistQuietly() {
   const p = state.currentProject;
   if (!p) return;
+  clearTimeout(autosaveTimer);
+  setSaveState('saving');
   try {
     await gas.saveProject(p);
+    setSaveState('saved');
   } catch (e) {
+    setSaveState('error');
     Swal.fire({
       icon: 'warning',
       title: 'ยังไม่ได้บันทึกขึ้นคลาวด์',
@@ -526,7 +769,7 @@ async function persistQuietly() {
 // ── Entry detail modal (หลักฐาน / ประวัติ / การจ่าย) ───────────────────────
 
 function closeBudgetEntryModal() {
-  modalEntryIdx = null;
+  modalEntryId = null;
   const modal = document.getElementById('budget-entry-modal');
   if (modal) {
     modal.classList.add('hidden');
@@ -539,19 +782,29 @@ function onModalKeydown(e) {
   if (e.key === 'Escape') closeBudgetEntryModal();
 }
 
-export function openBudgetEntry(idx) {
+/**
+ * เปิดรายละเอียดรายการ
+ * รับได้ทั้ง id (ปกติ) และลำดับเป็นตัวเลข (เผื่อ harness/โค้ดเก่าเรียกมา)
+ */
+export function openBudgetEntry(idOrIndex) {
   const p = state.currentProject;
-  const entry = p?.ledger?.[idx];
   const modal = document.getElementById('budget-entry-modal');
-  if (!entry || !modal) return;
-  modalEntryIdx = idx;
+  if (!p || !modal) return;
+  ensureLedgerIds(p);
+
+  const entry = typeof idOrIndex === 'number'
+    ? p.ledger?.[idOrIndex]
+    : findEntryById(p, idOrIndex);
+  if (!entry) return;
+
+  modalEntryId = entry.id;
   document.addEventListener('keydown', onModalKeydown);
   renderBudgetEntryModal();
 }
 
 function renderBudgetEntryModal() {
   const p = state.currentProject;
-  const entry = p?.ledger?.[modalEntryIdx];
+  const entry = findEntryById(p, modalEntryId);
   const modal = document.getElementById('budget-entry-modal');
   if (!entry || !modal) { closeBudgetEntryModal(); return; }
 
@@ -560,8 +813,12 @@ function renderBudgetEntryModal() {
   const statusMeta = getStatusMeta(status);
   const attachments = getAttachments(entry);
   const history = getHistory(entry).slice().reverse();
-  const nextStatus = type === 'expense' && status !== 'rejected' ? getNextStatus(entry) : null;
+  const role = currentRole();
+  const transitions = getAllowedTransitions(entry, role);
+  const nextStatus = transitions.includes(getNextStatus(entry)) ? getNextStatus(entry) : null;
   const currentPos = WORKFLOW.indexOf(status);
+  const editable = canEditEntry(entry, role);
+  const problems = validateEntry(entry);
 
   modal.classList.remove('hidden');
   modal.innerHTML = `
@@ -584,17 +841,27 @@ function renderBudgetEntryModal() {
           ${WORKFLOW.map((step, i) => {
             const meta = getStatusMeta(step);
             const stateClass = status === 'rejected' ? 'off' : i < currentPos ? 'done' : i === currentPos ? 'current' : 'todo';
+            // กดได้เฉพาะขั้นที่ย้ายไปได้จริง — ขั้นอื่นเป็นแค่ตัวบอกความคืบหน้า
+            const reachable = transitions.includes(step);
             return `
-              <button class="budget-step ${stateClass}" data-step="${step}" title="เปลี่ยนสถานะเป็น: ${meta.label}">
-                <span class="budget-step-dot"><i class="fa-solid ${meta.icon}"></i></span>
-                <span class="budget-step-label">${meta.label}</span>
+              <button class="budget-step ${stateClass}" ${reachable ? `data-step="${step}"` : 'disabled'}
+                title="${reachable ? 'เปลี่ยนสถานะเป็น: ' + meta.label : meta.label + ' — ข้ามขั้นไม่ได้'}">
+                <span class="budget-step-dot"><i class="fa-solid ${meta.icon}" aria-hidden="true"></i></span>
+                <span class="budget-step-label">${escapeHTML(meta.label)}</span>
               </button>${i < WORKFLOW.length - 1 ? '<span class="budget-step-line"></span>' : ''}`;
           }).join('')}
         </div>
+        ${problems.length ? `
+        <div class="budget-modal-problems">
+          <p><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> ต้องแก้ก่อนเดินเรื่องต่อ</p>
+          <ul>${problems.map(item => `<li>${escapeHTML(item)}</li>`).join('')}</ul>
+        </div>` : ''}
         <div class="budget-modal-actions">
-          ${nextStatus ? `<button data-advance="${nextStatus}" class="px-4 py-2 bg-blue-900 text-white text-xs font-bold rounded-xl hover:scale-105 transition"><i class="fa-solid fa-forward-step mr-1"></i>${NEXT_ACTION_LABELS[status] || 'ไปขั้นถัดไป'}</button>` : ''}
-          ${status !== 'rejected' && status !== 'paid' ? `<button data-advance="rejected" class="px-4 py-2 bg-white border border-rose-200 text-rose-600 text-xs font-bold rounded-xl hover:bg-rose-50 transition"><i class="fa-solid fa-ban mr-1"></i>ไม่อนุมัติ</button>` : ''}
-          ${status === 'rejected' ? `<button data-advance="requested" class="px-4 py-2 bg-white border border-gray-200 text-gray-600 text-xs font-bold rounded-xl hover:bg-gray-50 transition"><i class="fa-solid fa-rotate-left mr-1"></i>นำกลับมาขออนุมัติใหม่</button>` : ''}
+          ${nextStatus ? `<button data-advance="${nextStatus}" class="px-4 py-2 bg-blue-900 text-white text-xs font-bold rounded-xl hover:scale-105 transition"><i class="fa-solid fa-forward-step mr-1" aria-hidden="true"></i>${escapeHTML(NEXT_ACTION_LABELS[status] || 'ไปขั้นถัดไป')}</button>` : ''}
+          ${transitions.includes('rejected') ? `<button data-advance="rejected" class="px-4 py-2 bg-white border border-rose-200 text-rose-600 text-xs font-bold rounded-xl hover:bg-rose-50 transition"><i class="fa-solid fa-ban mr-1" aria-hidden="true"></i>ไม่อนุมัติ</button>` : ''}
+          ${status === 'rejected' && transitions.includes('requested') ? `<button data-advance="requested" class="px-4 py-2 bg-white border border-gray-200 text-gray-600 text-xs font-bold rounded-xl hover:bg-gray-50 transition"><i class="fa-solid fa-rotate-left mr-1" aria-hidden="true"></i>นำกลับมาขออนุมัติใหม่</button>` : ''}
+          ${transitions.includes(WORKFLOW[currentPos - 1]) ? `<button data-advance="${WORKFLOW[currentPos - 1]}" class="px-4 py-2 bg-white border border-amber-200 text-amber-700 text-xs font-bold rounded-xl hover:bg-amber-50 transition"><i class="fa-solid fa-arrow-rotate-left mr-1" aria-hidden="true"></i>ย้อนกลับหนึ่งขั้น</button>` : ''}
+          ${!transitions.length ? `<p class="text-[11px] font-bold text-gray-400"><i class="fa-solid fa-lock mr-1" aria-hidden="true"></i>${status === 'paid' ? 'รายการปิดแล้ว' : 'คุณไม่มีสิทธิ์เดินสถานะรายการนี้'}</p>` : ''}
         </div>` : ''}
 
         <div class="budget-modal-grid">
@@ -670,6 +937,26 @@ function renderBudgetEntryModal() {
   bindBudgetEntryModal(entry);
 }
 
+/** อัปเดตกล่อง "ต้องแก้ก่อนเดินเรื่องต่อ" ในตัวโดยไม่เรนเดอร์ modal ใหม่ */
+function refreshModalValidation(entry) {
+  const modal = document.getElementById('budget-entry-modal');
+  const box = modal?.querySelector('.budget-modal-problems');
+  const stepper = modal?.querySelector('.budget-stepper');
+  if (!modal || !stepper) return;
+
+  const problems = validateEntry(entry);
+  if (!problems.length) { box?.remove(); return; }
+
+  const html = `<p><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> ต้องแก้ก่อนเดินเรื่องต่อ</p>
+    <ul>${problems.map(item => `<li>${escapeHTML(item)}</li>`).join('')}</ul>`;
+  if (box) { box.innerHTML = html; return; }
+
+  const created = document.createElement('div');
+  created.className = 'budget-modal-problems';
+  created.innerHTML = html;
+  stepper.insertAdjacentElement('afterend', created);
+}
+
 function bindBudgetEntryModal(entry) {
   const modal = document.getElementById('budget-entry-modal');
   if (!modal) return;
@@ -684,8 +971,16 @@ function bindBudgetEntryModal(entry) {
   });
 
   modal.querySelectorAll('[data-mfield]').forEach(el => {
+    if (!canEditEntry(entry, currentRole())) { el.disabled = true; return; }
     el.addEventListener('change', () => {
-      entry[el.dataset.mfield] = el.value;
+      const field = el.dataset.mfield;
+      const before = entry[field];
+      entry[field] = el.value;
+      const note = describeFieldChange(field, before, el.value);
+      if (note) recordHistory(entry, note);
+      markDirty();
+      // อัปเดตเฉพาะกล่องเตือน ไม่เรนเดอร์ทั้ง modal ใหม่ (กันหน้าเด้ง/เสียตำแหน่ง scroll)
+      refreshModalValidation(entry);
     });
   });
 
@@ -801,17 +1096,98 @@ async function deleteEvidence(entry, fileIdx) {
 
 // ── Export ──────────────────────────────────────────────────────────────────
 
+/**
+ * รายงานงบประมาณ/เบิกจ่าย (CSV เปิดด้วย Excel ได้)
+ *
+ * แบ่งเป็นส่วน ๆ แทนที่จะดัมป์รายการดิบอย่างเดียว:
+ * หัวรายงาน → สรุปภาพรวม → สรุปตามหมวด → สรุปตามสถานะ → ทะเบียนคุมวางบิล → รายการทั้งหมด
+ */
 export function exportBudgetReport() {
   const p = state.currentProject;
   if (!p) return;
+
   const budget = Number(document.getElementById('input-proj-budget')?.value || p.budget || 0);
   const summary = getBudgetSummary(p, budget);
-  const header = ['วันที่', 'ประเภท', 'สถานะ', 'รายการ', 'ผู้รับเงิน/หน่วยงาน', 'หมวด', 'เลขที่เอกสาร', 'วันวางบิล', 'วันครบกำหนด', 'วันที่จ่ายจริง', 'เลขอ้างอิงการจ่าย', 'จำนวนหลักฐาน', 'หมายเหตุ', 'จำนวนเงิน'];
-  const rows = (p.ledger || []).map(entry => {
-    const type = getEntryType(entry) === 'income' ? 'รายรับ' : 'รายจ่าย';
-    return [
+  const now = new Date();
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+
+  const pct = value => (summary.totalIncome > 0 ? Math.round((value / summary.totalIncome) * 100) + '%' : '-');
+  const sheet = [];
+  const section = title => { sheet.push([], [title]); };
+
+  // ── หัวรายงาน ──
+  sheet.push(['รายงานงบประมาณและการเบิกจ่าย']);
+  sheet.push(['หลักสูตร', p.name || p.id || '-']);
+  sheet.push(['ปีงบประมาณ', p.year || '-']);
+  sheet.push(['วงเงินที่ได้รับ', budget]);
+  sheet.push(['ออกรายงานเมื่อ', now.toLocaleString('th-TH')]);
+  sheet.push(['ออกโดย', state.currentUserName || '-']);
+
+  // ── สรุปภาพรวม ──
+  section('สรุปภาพรวม');
+  sheet.push(['รายการ', 'จำนวนเงิน (บาท)', 'สัดส่วนของวงเงิน']);
+  sheet.push(['วงเงินรวม (งบ + รายรับเสริม)', summary.totalIncome, '100%']);
+  sheet.push(['ยอดอนุมัติ/ผูกพัน', summary.committedExpense, pct(summary.committedExpense)]);
+  sheet.push(['วางบิล/รอเบิกจ่าย', summary.claimQueue, pct(summary.claimQueue)]);
+  sheet.push(['เบิกจ่ายแล้ว', summary.paidExpense, pct(summary.paidExpense)]);
+  sheet.push(['คงเหลือหลังผูกพัน', summary.available, pct(summary.available)]);
+  sheet.push(['รายการที่ไม่อนุมัติ (ไม่นับผูกพัน)', summary.rejectedExpense, '']);
+
+  // ── สรุปตามหมวดค่าใช้จ่าย ──
+  section('สรุปตามหมวดค่าใช้จ่าย (เฉพาะรายจ่ายที่ยังมีผล)');
+  sheet.push(['หมวด', 'จำนวนเงิน (บาท)', 'สัดส่วนของยอดผูกพัน']);
+  const categories = getCategoryBreakdown(p);
+  categories.forEach(row => {
+    const share = summary.committedExpense > 0
+      ? Math.round((row.amount / summary.committedExpense) * 100) + '%'
+      : '-';
+    sheet.push([row.label, row.amount, share]);
+  });
+  if (!categories.length) sheet.push(['(ยังไม่มีรายการ)', 0, '-']);
+
+  // ── สรุปตามสถานะ ──
+  section('สรุปตามสถานะการเบิกจ่าย');
+  sheet.push(['สถานะ', 'จำนวนรายการ', 'จำนวนเงิน (บาท)']);
+  getStatusBreakdown(p).forEach(row => {
+    const count = (p.ledger || []).filter(
+      entry => getEntryType(entry) === 'expense' && getEntryStatus(entry) === row.value
+    ).length;
+    sheet.push([row.label, count, row.amount]);
+  });
+
+  // ── ทะเบียนคุมวางบิล ──
+  section('ทะเบียนคุมวางบิล / บัญชีเจ้าหนี้');
+  sheet.push(['เลขที่บิล', 'รายการ', 'เจ้าหนี้', 'วันวางบิล', 'ครบกำหนด', 'อายุหนี้', 'สถานะ', 'จำนวนเงิน (บาท)']);
+  const bills = getBillEntries(p)
+    .map(item => ({ ...item, aging: getBillAging(item.entry, item.status, today) }))
+    .sort((a, b) => String(a.entry.dueDate || '9999').localeCompare(String(b.entry.dueDate || '9999')));
+  bills.forEach(({ entry, status, aging }) => {
+    sheet.push([
+      entry.docNo || '-',
+      entry.desc || '-',
+      entry.payee || '-',
+      entry.billDate || '-',
+      entry.dueDate || '-',
+      aging.label,
+      getStatusMeta(status).label,
+      Number(entry.amount || 0)
+    ]);
+  });
+  if (!bills.length) sheet.push(['(ยังไม่มีใบวางบิล)', '', '', '', '', '', '', 0]);
+
+  // ── รายการทั้งหมด ──
+  section('รายการทั้งหมด');
+  sheet.push([
+    'รหัสรายการ', 'วันที่', 'ประเภท', 'สถานะ', 'รายการ', 'ผู้รับเงิน/หน่วยงาน', 'หมวด',
+    'เลขที่เอกสาร', 'วันวางบิล', 'วันครบกำหนด', 'วันที่จ่ายจริง', 'เลขอ้างอิงการจ่าย',
+    'จำนวนหลักฐาน', 'ประเด็นที่ต้องแก้', 'หมายเหตุ', 'จำนวนเงิน (บาท)'
+  ]);
+  (p.ledger || []).forEach(entry => {
+    sheet.push([
+      entry.id || '',
       entry.date || '',
-      type,
+      getEntryType(entry) === 'income' ? 'รายรับ' : 'รายจ่าย',
       getStatusMeta(getEntryStatus(entry)).label,
       entry.desc || '',
       entry.payee || '',
@@ -822,27 +1198,24 @@ export function exportBudgetReport() {
       entry.paidDate || '',
       entry.payRef || '',
       getAttachments(entry).length,
+      validateEntry(entry).join(' / '),
       entry.note || '',
       Number(entry.amount || 0)
-    ];
+    ]);
   });
-  const summaryRow = (label, value) => ['สรุปงบประมาณ', ...Array(11).fill(''), label, value];
-  const summaryRows = [
-    [],
-    summaryRow('รายรับรวม', summary.totalIncome),
-    summaryRow('ยอดอนุมัติ/ผูกพัน', summary.committedExpense),
-    summaryRow('วางบิล/รอเบิกจ่าย', summary.claimQueue),
-    summaryRow('เบิกจ่ายแล้ว', summary.paidExpense),
-    summaryRow('งบคงเหลือหลังผูกพัน', summary.available)
-  ];
-  const csv = [header, ...rows, ...summaryRows]
-    .map(row => row.map(value => `"${String(value ?? '').replace(/"/g, '""')}"`).join(','))
-    .join('\n');
+
+  downloadCsv(sheet, `${p.id || 'course'}-budget-report-${todayISO(now)}.csv`);
+}
+
+function downloadCsv(rows, filename) {
+  const csv = rows
+    .map(row => (row || []).map(value => `"${String(value ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\r\n'); // CRLF — Excel อ่านบรรทัดถูกต้องกว่า
   const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `${p.id || 'course'}-budget-report.csv`;
+  link.download = filename;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -876,7 +1249,7 @@ export function renderBudgetSummary() {
   }
   if (el('budget-alert-list')) {
     el('budget-alert-list').innerHTML = alerts.length
-      ? alerts.slice(0, 5).map(({ entry, index, status, overdue, missingDoc, missingEvidence }) => {
+      ? alerts.slice(0, 5).map(({ entry, status, overdue, missingDoc, missingEvidence }) => {
           const statusMeta = getStatusMeta(status);
           const reason = overdue
             ? 'เกินกำหนดติดตาม'
@@ -888,17 +1261,17 @@ export function renderBudgetSummary() {
                   ? 'วางบิลแล้ว รอตั้งเบิก'
                   : 'ตั้งเบิกแล้ว รอจ่าย';
           return `
-            <button data-alert-idx="${index}" class="w-full text-left flex items-center justify-between gap-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition px-3 py-2">
+            <button data-alert-id="${escapeHTML(entry.id || '')}" class="w-full text-left flex items-center justify-between gap-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition px-3 py-2">
               <div class="min-w-0">
                 <p class="text-xs font-black text-gray-800 truncate">${escapeHTML(entry.desc || '-')}</p>
                 <p class="text-[11px] text-gray-400">${reason} • ${escapeHTML(entry.dueDate || 'ไม่ระบุวันครบกำหนด')}</p>
               </div>
-              <span class="shrink-0 px-2 py-1 rounded-lg text-[10px] font-black ${statusMeta.tone}">${statusMeta.label}</span>
+              <span class="shrink-0 px-2 py-1 rounded-lg text-[10px] font-black ${statusMeta.tone}">${escapeHTML(statusMeta.label)}</span>
             </button>`;
         }).join('')
       : '<p class="text-xs text-gray-400 font-bold">ยังไม่มีรายการที่ต้องติดตาม</p>';
-    el('budget-alert-list').querySelectorAll('[data-alert-idx]').forEach(btn => {
-      btn.addEventListener('click', () => openBudgetEntry(+btn.dataset.alertIdx));
+    el('budget-alert-list').querySelectorAll('[data-alert-id]').forEach(btn => {
+      btn.addEventListener('click', () => openBudgetEntry(btn.dataset.alertId));
     });
   }
   renderBudgetVisualPanel(p, summary, alerts);

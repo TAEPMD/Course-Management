@@ -36,6 +36,11 @@ const ROLE_ADMIN_ONLY = ["Admin"];
 const ROLE_EDITORS    = ["Admin", "Staff", "Instructor"];
 const ROLE_APPROVERS  = ["Admin", "Staff"];
 
+// --- สายอนุมัติงบประมาณ/เบิกจ่าย (ต้องตรงกับ src/utils/budgetWorkflow.js) ---
+const BUDGET_WORKFLOW = ["requested", "approved", "obligated", "billed", "claiming", "paid"];
+// สถานะที่ผู้ตั้งเรื่อง (เช่น Instructor) ยังแก้เนื้อรายการได้
+const BUDGET_OPEN_STATUSES = ["requested", "rejected"];
+
 // --- Shared Spreadsheet Accessor (ลดการเรียก getActiveSpreadsheet ซ้ำ) ---
 function getSpreadsheet_() {
   return SpreadsheetApp.getActiveSpreadsheet();
@@ -812,6 +817,105 @@ function getProjects(session) {
   return projects;
 }
 
+/** อ่าน ledger ที่เก็บอยู่จริงในชีตออกมาเป็น array (พังก็คืน array ว่าง) */
+function parseLedger_(raw) {
+  try {
+    const parsed = JSON.parse(raw || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function ledgerStatus_(entry) {
+  if (entry && entry.status) return String(entry.status);
+  return entry && entry.type === "income" ? "paid" : "requested";
+}
+
+/**
+ * ด่านฝั่งเซิร์ฟเวอร์ของสายอนุมัติเบิกจ่าย
+ *
+ * ฝั่งหน้าเว็บซ่อนปุ่ม/ล็อกช่องให้แล้ว แต่ saveProject รับ ledger ทั้งก้อนมาเขียนทับ
+ * ถ้าไม่ตรวจตรงนี้ ผู้ใช้ที่ไม่มีสิทธิ์ยิง API ตรง ๆ ก็ตั้งสถานะเป็น "จ่ายแล้ว" ได้เลย
+ *
+ * กติกาต้องตรงกับ getAllowedTransitions() ใน src/utils/budgetWorkflow.js
+ */
+function guardLedgerChanges_(incoming, existing, session) {
+  const user = checkAuth(session);
+  const role = normalizeRole_(user && user.role);
+  const isApprover = ROLE_APPROVERS.indexOf(role) !== -1;
+  const isAdmin = role === "Admin";
+  if (isAdmin) return; // Admin แก้ได้ทุกอย่าง รวมถึงย้อนสถานะ
+
+  const before = {};
+  for (let i = 0; i < existing.length; i++) {
+    const entry = existing[i];
+    if (entry && entry.id) before[String(entry.id)] = entry;
+  }
+
+  const deny = function (message) {
+    authLog_("budget_forbidden", { userId: user && user.id, note: role + ": " + message });
+    throw new Error("Forbidden: " + message);
+  };
+
+  for (let i = 0; i < incoming.length; i++) {
+    const entry = incoming[i] || {};
+    const status = ledgerStatus_(entry);
+    const prior = entry.id ? before[String(entry.id)] : null;
+
+    // รายการใหม่ต้องเริ่มที่ "ขออนุมัติ" เสมอ (ยกเว้นรายรับ และผู้มีสิทธิ์อนุมัติ)
+    if (!prior) {
+      if (entry.type !== "income" && status !== "requested" && !isApprover) {
+        deny("รายการใหม่ต้องเริ่มที่สถานะขออนุมัติ");
+      }
+      continue;
+    }
+
+    const priorStatus = ledgerStatus_(prior);
+
+    if (status !== priorStatus) {
+      if (!isApprover) deny("ไม่มีสิทธิ์เปลี่ยนสถานะรายการเบิกจ่าย");
+
+      const from = BUDGET_WORKFLOW.indexOf(priorStatus);
+      const to = BUDGET_WORKFLOW.indexOf(status);
+      const forwardOneStep = from !== -1 && to === from + 1;
+      const rejecting = status === "rejected" && priorStatus !== "paid";
+      const reopening = priorStatus === "rejected" && status === "requested";
+
+      if (!forwardOneStep && !rejecting && !reopening) {
+        deny("เปลี่ยนสถานะข้ามขั้น: " + priorStatus + " → " + status);
+      }
+    }
+
+    // อนุมัติแล้วขึ้นไป = เงินผูกพันแล้ว ผู้ที่ไม่ใช่ผู้อนุมัติห้ามแก้ตัวเลข/เอกสาร
+    if (!isApprover && BUDGET_OPEN_STATUSES.indexOf(priorStatus) === -1) {
+      const locked = ["amount", "desc", "payee", "cat", "type", "docNo", "paidDate", "payRef"];
+      for (let f = 0; f < locked.length; f++) {
+        const field = locked[f];
+        if (String(entry[field] || "") !== String(prior[field] || "")) {
+          deny("ไม่มีสิทธิ์แก้ " + field + " ของรายการที่อนุมัติแล้ว");
+        }
+      }
+    }
+
+    // จำนวนเงินติดลบไม่รับเด็ดขาด
+    if (Number(entry.amount) < 0) deny("จำนวนเงินต้องไม่ติดลบ");
+  }
+
+  // ลบรายการที่ผูกพันแล้วต้องเป็นผู้มีสิทธิ์อนุมัติ
+  if (!isApprover) {
+    const stillThere = {};
+    for (let i = 0; i < incoming.length; i++) {
+      if (incoming[i] && incoming[i].id) stillThere[String(incoming[i].id)] = true;
+    }
+    for (const id in before) {
+      if (!stillThere[id] && BUDGET_OPEN_STATUSES.indexOf(ledgerStatus_(before[id])) === -1) {
+        deny("ไม่มีสิทธิ์ลบรายการที่อนุมัติแล้ว");
+      }
+    }
+  }
+}
+
 function saveProject(p, session) {
   checkAuth(session);
 
@@ -826,12 +930,17 @@ function saveProject(p, session) {
     const data = sheet.getDataRange().getValues();
     let rowIndex = -1;
 
+    let existingLedger = [];
     for (let i = 1; i < data.length; i++) {
       if (String(data[i][0]) === String(p.id)) {
         rowIndex = i + 1;
+        existingLedger = parseLedger_(data[i][17]);
         break;
       }
     }
+
+    // ตรวจสายอนุมัติเบิกจ่ายก่อนเขียนทับ — UI ซ่อนปุ่มให้แล้วแต่ API ยังถูกยิงตรงได้
+    guardLedgerChanges_(Array.isArray(p.ledger) ? p.ledger : [], existingLedger, session);
 
     const rowData = [
       p.id, p.name, p.year, p.status,
@@ -859,6 +968,8 @@ function saveProject(p, session) {
     return true;
   } catch (e) {
     Logger.log("saveProject error: " + e.toString());
+    // ข้อความ Forbidden ต้องส่งกลับตามเดิม ฝั่งหน้าเว็บใช้ตรวจเพื่อบอกว่า "ไม่มีสิทธิ์"
+    if (String(e.message || "").indexOf("Forbidden") === 0) throw e;
     throw new Error("บันทึกโครงการล้มเหลว: " + e.message);
   } finally {
     lock.releaseLock();

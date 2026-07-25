@@ -1012,7 +1012,10 @@
                             <!-- Ledger Table -->
                             <div class="bg-white rounded-[20px] border border-gray-100 overflow-hidden">
                                 <div class="p-5 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                    <h4 class="font-bold text-gray-800">รายการบัญชีงบประมาณ</h4>
+                                    <div class="flex items-center gap-3 min-w-0">
+                                        <h4 class="font-bold text-gray-800">รายการบัญชีงบประมาณ</h4>
+                                        <span id="budget-save-state" class="text-[11px] font-bold inline-flex items-center gap-1.5 text-emerald-600" role="status" aria-live="polite"></span>
+                                    </div>
                                     <div class="flex items-center gap-2">
                                         <button onclick="app.exportBudgetReport()" class="px-4 py-2 bg-white border border-gray-200 text-gray-600 text-xs font-bold rounded-xl hover:bg-gray-50 transition"><i class="fa-solid fa-file-export mr-1"></i>ส่งออก CSV</button>
                                         <button onclick="app.addBudgetEntry()" class="px-4 py-2 bg-blue-900 text-white text-xs font-bold rounded-xl hover:scale-105 transition"><i class="fa-solid fa-plus mr-1"></i>เพิ่มรายการ</button>

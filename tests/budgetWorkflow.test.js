@@ -293,45 +293,45 @@ test('getBillAging: ไม่ระบุกำหนดชำระ', () => {
 // ── ด่านตรวจก่อนเปลี่ยนสถานะ ────────────────────────────────────────────────
 
 test('checkStatusChange: เปลี่ยนเป็นสถานะเดิม = ไม่ทำอะไร', () => {
-  assert.deepEqual(checkStatusChange({ status: 'billed' }, 'billed'), { ok: false, warning: null });
+  assert.deepEqual(checkStatusChange({ status: 'billed' }, 'billed'), { ok: false, warning: null, error: null });
 });
 
 test('checkStatusChange: ตั้งเบิกโดยไม่มีเลขที่เอกสาร ต้องเตือน', () => {
   assert.deepEqual(
     checkStatusChange({ status: 'billed' }, 'claiming'),
-    { ok: true, warning: 'missing-doc' }
+    { ok: true, warning: 'missing-doc', error: null }
   );
   assert.deepEqual(
     checkStatusChange({ status: 'billed', docNo: '  ' }, 'claiming'),
-    { ok: true, warning: 'missing-doc' },
+    { ok: true, warning: 'missing-doc', error: null },
     'เลขเอกสารที่เป็นช่องว่างล้วนไม่นับ'
   );
   assert.deepEqual(
     checkStatusChange({ status: 'billed', docNo: 'INV-1' }, 'claiming'),
-    { ok: true, warning: null }
+    { ok: true, warning: null, error: null }
   );
 });
 
 test('checkStatusChange: ปิดจ่ายโดยไม่มีหลักฐาน ต้องเตือน', () => {
   assert.deepEqual(
     checkStatusChange({ status: 'claiming', docNo: 'INV-1' }, 'paid'),
-    { ok: true, warning: 'missing-evidence' }
+    { ok: true, warning: 'missing-evidence', error: null }
   );
   assert.deepEqual(
     checkStatusChange({ status: 'claiming', docNo: 'INV-1', attachments: [{ name: 'slip' }] }, 'paid'),
-    { ok: true, warning: null }
+    { ok: true, warning: null, error: null }
   );
 });
 
 test('checkStatusChange: ไม่อนุมัติต้องขอคำยืนยันเสมอ', () => {
   assert.deepEqual(
     checkStatusChange({ status: 'requested' }, 'rejected'),
-    { ok: true, warning: 'confirm-reject' }
+    { ok: true, warning: 'confirm-reject', error: null }
   );
 });
 
 test('checkStatusChange: เดินตาม workflow ปกติผ่านฉลุย', () => {
-  assert.deepEqual(checkStatusChange({ status: 'requested' }, 'approved'), { ok: true, warning: null });
-  assert.deepEqual(checkStatusChange({ status: 'approved' }, 'obligated'), { ok: true, warning: null });
-  assert.deepEqual(checkStatusChange({ status: 'obligated' }, 'billed'), { ok: true, warning: null });
+  assert.deepEqual(checkStatusChange({ status: 'requested' }, 'approved'), { ok: true, warning: null, error: null });
+  assert.deepEqual(checkStatusChange({ status: 'approved' }, 'obligated'), { ok: true, warning: null, error: null });
+  assert.deepEqual(checkStatusChange({ status: 'obligated' }, 'billed'), { ok: true, warning: null, error: null });
 });

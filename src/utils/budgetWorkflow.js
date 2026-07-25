@@ -93,6 +93,124 @@ export function isClaimQueue(entry) {
   return getEntryType(entry) === 'expense' && CLAIM_QUEUE_STATUSES.includes(getEntryStatus(entry));
 }
 
+// ── สิทธิ์ในสายงานเบิกจ่าย ──────────────────────────────────────────────────
+//
+// ใช้ role ชุดเดียวกับที่ระบบมีอยู่ (Admin / Staff / Instructor / Trainee)
+// ⚠ นี่เป็นการคุมฝั่งหน้าจอเท่านั้น ด่านจริงต้องอยู่ใน Code.gs ด้วย
+
+/** อนุมัติ / เดินสถานะ / ไม่อนุมัติ ได้ */
+export const BUDGET_APPROVER_ROLES = ['Admin', 'Staff'];
+/** ตั้งเรื่องขอเบิกและแก้รายการของตัวเองตอนยังไม่อนุมัติได้ */
+export const BUDGET_REQUESTER_ROLES = ['Admin', 'Staff', 'Instructor'];
+/** ย้อนสถานะกลับ (ใช้แก้กรณีกดพลาด) — จำกัดไว้ที่ Admin */
+export const BUDGET_REVERT_ROLES = ['Admin'];
+
+export function canApproveBudget(role) {
+  return BUDGET_APPROVER_ROLES.includes(role);
+}
+
+export function canRequestBudget(role) {
+  return BUDGET_REQUESTER_ROLES.includes(role);
+}
+
+export function canRevertBudget(role) {
+  return BUDGET_REVERT_ROLES.includes(role);
+}
+
+/**
+ * แก้ไขเนื้อรายการ (จำนวนเงิน/รายละเอียด/หมวด) ได้หรือไม่
+ * - ยังไม่อนุมัติ → ผู้ตั้งเรื่องแก้ได้
+ * - อนุมัติแล้วขึ้นไป → เฉพาะผู้มีสิทธิ์อนุมัติ (เงินผูกพันแล้ว)
+ * - จ่ายแล้ว → ล็อก ยกเว้น Admin
+ */
+export function canEditEntry(entry, role) {
+  const status = getEntryStatus(entry);
+  if (status === 'paid') return canRevertBudget(role);
+  if (status === 'requested' || status === 'rejected') return canRequestBudget(role);
+  return canApproveBudget(role);
+}
+
+// ── การเปลี่ยนสถานะที่อนุญาต ────────────────────────────────────────────────
+
+/**
+ * รายการสถานะที่ย้ายไปได้จริงจากสถานะปัจจุบัน
+ *
+ * กติกา (กันข้ามขั้น — เดิม dropdown เลือกได้ทั้ง 7 สถานะ ทำให้กระโดดจาก
+ * "ขออนุมัติ" ไป "จ่ายแล้ว" ได้โดยไม่ผ่านการอนุมัติเลย):
+ *  - เดินหน้าได้ทีละขั้นตาม WORKFLOW เท่านั้น
+ *  - ไม่อนุมัติ (rejected) ทำได้ทุกสถานะที่ยังไม่จ่าย
+ *  - รายการที่ไม่อนุมัติแล้ว เปิดกลับมาเป็น "ขออนุมัติ" ได้
+ *  - ย้อนกลับทีละขั้น เฉพาะ role ที่ย้อนได้
+ */
+export function getAllowedTransitions(entry, role) {
+  const status = getEntryStatus(entry);
+  const allowed = [];
+
+  // รายรับไม่มีสายอนุมัติ — คุมแค่ว่าใครแก้ได้
+  if (getEntryType(entry) === 'income') return allowed;
+
+  if (status === 'rejected') {
+    if (canApproveBudget(role)) allowed.push('requested');
+    return allowed;
+  }
+
+  const pos = WORKFLOW.indexOf(status);
+  if (pos === -1) return allowed;
+
+  if (canApproveBudget(role)) {
+    if (pos < WORKFLOW.length - 1) allowed.push(WORKFLOW[pos + 1]);
+    if (status !== 'paid') allowed.push('rejected');
+  }
+  if (canRevertBudget(role) && pos > 0) {
+    allowed.push(WORKFLOW[pos - 1]);
+  }
+
+  return allowed;
+}
+
+export function isTransitionAllowed(entry, next, role) {
+  return getAllowedTransitions(entry, role).includes(next);
+}
+
+/** ย้อนกลับหนึ่งขั้น (null ถ้าย้อนไม่ได้) */
+export function getPreviousStatus(entry) {
+  const pos = WORKFLOW.indexOf(getEntryStatus(entry));
+  if (pos <= 0) return null;
+  return WORKFLOW[pos - 1];
+}
+
+// ── รหัสประจำรายการ ─────────────────────────────────────────────────────────
+
+/**
+ * รายการใน ledger ต้องมี id ของตัวเอง — เดิมอ้างด้วยลำดับใน array
+ * ซึ่งเลื่อนได้เมื่อมีการลบ/เรียงใหม่ ทำให้ modal ที่เปิดค้างชี้ผิดรายการ
+ */
+export function makeEntryId(now = Date.now(), seed = Math.random()) {
+  return 'led-' + now.toString(36) + '-' + Math.floor(seed * 1e6).toString(36);
+}
+
+export function ensureEntryId(entry) {
+  if (entry && !entry.id) entry.id = makeEntryId();
+  return entry?.id;
+}
+
+/** เติม id ให้รายการเก่าที่บันทึกไว้ก่อนมีระบบ id — คืนจำนวนที่เติม */
+export function ensureLedgerIds(project) {
+  let added = 0;
+  for (const entry of project?.ledger || []) {
+    if (!entry.id) { ensureEntryId(entry); added += 1; }
+  }
+  return added;
+}
+
+export function findEntryById(project, id) {
+  return (project?.ledger || []).find(entry => entry.id === id) || null;
+}
+
+export function findEntryIndexById(project, id) {
+  return (project?.ledger || []).findIndex(entry => entry.id === id);
+}
+
 const sumAmount = entries => entries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
 
 export function getBudgetSummary(project, budgetValue) {
@@ -256,20 +374,147 @@ export function formatHistoryTime(iso) {
 
 /**
  * ตรวจว่าย้ายสถานะได้ไหม (ตรรกะล้วน — ไม่เด้ง dialog)
- * คืน { ok, warning } · warning = เรื่องที่ควรถามผู้ใช้ก่อนยืนยัน
+ *
+ * คืน { ok, warning, error }
+ *  - error   = ห้ามทำ (ข้ามขั้น / ไม่มีสิทธิ์) — ไม่มีทางกดผ่าน
+ *  - warning = ทำได้แต่ควรถามยืนยันก่อน
+ *
+ * `role` ไม่ระบุ = ไม่ตรวจสิทธิ์ (เข้ากันได้กับโค้ดเดิมและใช้ตอนเทสต์ตรรกะล้วน)
  */
-export function checkStatusChange(entry, next) {
+export function checkStatusChange(entry, next, role = null) {
   const current = getEntryStatus(entry);
-  if (!entry || next === current) return { ok: false, warning: null };
+  if (!entry || next === current) return { ok: false, warning: null, error: null };
+
+  if (role !== null) {
+    if (!isTransitionAllowed(entry, next, role)) {
+      const allowed = getAllowedTransitions(entry, role);
+      return {
+        ok: false,
+        warning: null,
+        error: allowed.length ? 'not-allowed' : 'no-permission'
+      };
+    }
+  } else if (!WORKFLOW.includes(next) && next !== 'rejected') {
+    return { ok: false, warning: null, error: 'unknown-status' };
+  }
 
   if (next === 'claiming' && !String(entry.docNo || '').trim()) {
-    return { ok: true, warning: 'missing-doc' };
+    return { ok: true, warning: 'missing-doc', error: null };
   }
   if (next === 'paid' && !getAttachments(entry).length) {
-    return { ok: true, warning: 'missing-evidence' };
+    return { ok: true, warning: 'missing-evidence', error: null };
   }
   if (next === 'rejected') {
-    return { ok: true, warning: 'confirm-reject' };
+    return { ok: true, warning: 'confirm-reject', error: null };
   }
-  return { ok: true, warning: null };
+  if (getPreviousStatus(entry) === next) {
+    return { ok: true, warning: 'confirm-revert', error: null };
+  }
+  return { ok: true, warning: null, error: null };
+}
+
+// ── ความถูกต้องของรายการ ────────────────────────────────────────────────────
+
+/** ฟิลด์ที่เป็นตัวเงิน/สาระสำคัญ — เปลี่ยนแล้วต้องลง audit trail */
+export const AUDITED_FIELDS = {
+  amount: 'จำนวนเงิน',
+  desc: 'รายการ',
+  payee: 'ผู้รับเงิน',
+  cat: 'หมวดค่าใช้จ่าย',
+  type: 'ประเภท',
+  docNo: 'เลขที่เอกสาร',
+  date: 'วันที่',
+  dueDate: 'วันครบกำหนด',
+  billDate: 'วันวางบิล',
+  paidDate: 'วันที่จ่าย',
+  payRef: 'เลขอ้างอิงการจ่าย'
+};
+
+/**
+ * ตรวจความถูกต้องของรายการหนึ่งบรรทัด
+ * คืน array ของข้อความปัญหา (ว่าง = ผ่าน)
+ */
+export function validateEntry(entry) {
+  const errors = [];
+  const amount = Number(entry?.amount);
+
+  if (!Number.isFinite(amount)) errors.push('จำนวนเงินไม่ถูกต้อง');
+  else if (amount < 0) errors.push('จำนวนเงินต้องไม่ติดลบ');
+  else if (amount === 0 && getEntryStatus(entry) !== 'requested') {
+    errors.push('จำนวนเงินต้องมากกว่า 0 ก่อนเดินเรื่องต่อ');
+  }
+
+  if (!String(entry?.desc || '').trim()) errors.push('ต้องระบุรายการ');
+
+  const status = getEntryStatus(entry);
+  // รายรับไม่ได้เดินสายเบิกจ่าย (สถานะเริ่มต้นเป็น paid อยู่แล้ว)
+  // จึงไม่ต้องมีเลขที่ใบแจ้งหนี้หรือวันที่จ่าย
+  if (getEntryType(entry) === 'expense') {
+    if (DOC_REQUIRED_STATUSES.includes(status) && !String(entry?.docNo || '').trim()) {
+      errors.push('สถานะนี้ต้องมีเลขที่เอกสาร');
+    }
+    if (status === 'paid' && !String(entry?.paidDate || '').trim()) {
+      errors.push('รายการที่จ่ายแล้วต้องระบุวันที่จ่าย');
+    }
+  }
+  if (entry?.dueDate && entry?.billDate && entry.dueDate < entry.billDate) {
+    errors.push('วันครบกำหนดต้องไม่ก่อนวันวางบิล');
+  }
+
+  return errors;
+}
+
+/** ทำให้ค่าที่รับจาก input อยู่ในรูปที่ปลอดภัยก่อนเก็บลงรายการ */
+export function normalizeAmount(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount < 0) return 0;
+  return Math.round(amount * 100) / 100;
+}
+
+// ── คุมวงเงิน ───────────────────────────────────────────────────────────────
+
+/**
+ * ผลกระทบต่อวงเงินถ้าจะตั้ง/แก้รายจ่ายรายการหนึ่งเป็นจำนวน `nextAmount`
+ *
+ * นับเฉพาะรายจ่ายที่ยัง active (ไม่รวม rejected) เทียบกับรายรับรวม
+ * `entry` = null เมื่อเป็นรายการใหม่
+ */
+export function checkBudgetCap(project, entry, nextAmount, budgetValue) {
+  const summary = getBudgetSummary(project, budgetValue);
+  const previous = entry && isActiveExpense(entry) ? Number(entry.amount || 0) : 0;
+  const committed = summary.committedExpense - previous + normalizeAmount(nextAmount);
+  const overBy = committed - summary.totalIncome;
+  const pct = summary.totalIncome > 0 ? Math.round((committed / summary.totalIncome) * 100) : 0;
+
+  return {
+    totalIncome: summary.totalIncome,
+    committed,
+    remaining: summary.totalIncome - committed,
+    pct,
+    /** ไม่มีวงเงินตั้งไว้ — เตือนแต่ไม่บล็อก */
+    noBudget: summary.totalIncome <= 0,
+    exceeds: summary.totalIncome > 0 && overBy > 0,
+    overBy: overBy > 0 ? overBy : 0
+  };
+}
+
+// ── Audit trail ─────────────────────────────────────────────────────────────
+
+/**
+ * ข้อความบรรยายการแก้ไขฟิลด์ สำหรับลง history
+ * คืน null ถ้าไม่ใช่ฟิลด์ที่ต้องบันทึก หรือค่าไม่ได้เปลี่ยนจริง
+ */
+export function describeFieldChange(field, before, after) {
+  const label = AUDITED_FIELDS[field];
+  if (!label) return null;
+
+  const from = before === undefined || before === null || before === '' ? '(ว่าง)' : String(before);
+  const to = after === undefined || after === null || after === '' ? '(ว่าง)' : String(after);
+  if (from === to) return null;
+
+  if (field === 'amount') {
+    const fmt = value => Number(value || 0).toLocaleString('th-TH');
+    return `แก้${label}: ${fmt(before)} → ${fmt(after)} บาท`;
+  }
+  return `แก้${label}: ${from} → ${to}`;
 }

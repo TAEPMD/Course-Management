@@ -32,6 +32,8 @@
     import { state } from '/src/modules/state.js';
     import { renderBudgetLedger, openBudgetEntry, openBillIntake } from '/src/modules/budget.js';
     state.currentUserName = 'ผู้ทดสอบระบบ';
+    // ?role=Instructor / ?role=Staff เพื่อดูว่าสิทธิ์แต่ละระดับเห็นปุ่มอะไรบ้าง
+    state.currentUserRole = new URLSearchParams(location.search).get('role') || 'Admin';
     state.currentProject = {
       id: 'TR-69-01', budget: 150000,
       ledger: [
