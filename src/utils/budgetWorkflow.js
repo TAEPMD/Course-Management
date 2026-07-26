@@ -185,8 +185,21 @@ export function getPreviousStatus(entry) {
  * รายการใน ledger ต้องมี id ของตัวเอง — เดิมอ้างด้วยลำดับใน array
  * ซึ่งเลื่อนได้เมื่อมีการลบ/เรียงใหม่ ทำให้ modal ที่เปิดค้างชี้ผิดรายการ
  */
+/**
+ * ตัวนับในหน่วยความจำ — รับประกันว่า id ไม่ซ้ำภายใน session เดียว
+ *
+ * ถ้าพึ่ง Date.now() + Math.random() เพียงสองอย่าง เวลาสร้างรายการรัว ๆ ในมิลลิวินาที
+ * เดียวกัน (เช่น ensureLedgerIds เติม id ให้ข้อมูลเก่าทั้งก้อน) ค่า now จะเท่ากันหมด
+ * เหลือความสุ่มแค่ช่วงเดียว → ชนกันได้จริงตามหลัก birthday problem
+ * และ id เป็นกุญแจที่ findEntryById ใช้ ถ้าชนกันจะหยิบรายการผิด
+ */
+let entryIdSeq = 0;
+
 export function makeEntryId(now = Date.now(), seed = Math.random()) {
-  return 'led-' + now.toString(36) + '-' + Math.floor(seed * 1e6).toString(36);
+  entryIdSeq = (entryIdSeq + 1) % 0xffffff;
+  return 'led-' + now.toString(36)
+    + '-' + entryIdSeq.toString(36)
+    + '-' + Math.floor(seed * 0xffffffff).toString(36);
 }
 
 export function ensureEntryId(entry) {

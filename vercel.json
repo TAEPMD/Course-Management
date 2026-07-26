@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "api/gas.js": {
+      "maxDuration": 30
+    }
+  },
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],

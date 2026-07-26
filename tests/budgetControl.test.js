@@ -173,10 +173,17 @@ test('checkStatusChange: สถานะที่ไม่รู้จักถ�
 
 // ── รหัสประจำรายการ ─────────────────────────────────────────────────────────
 
-test('makeEntryId: ไม่ซ้ำกันแม้สร้างพร้อมกัน', () => {
+test('makeEntryId: ไม่ซ้ำกันแม้สร้างรัว ๆ ในมิลลิวินาทีเดียวกัน', () => {
+  // เคสจริง: ensureLedgerIds เติม id ให้ทั้ง ledger ในทีเดียว → Date.now() เท่ากันหมด
+  // ถ้าพึ่งความสุ่มอย่างเดียวจะชนกันได้ (500 ค่าจากช่วง 10^6 ชนกัน ~12%)
   const ids = new Set();
-  for (let i = 0; i < 500; i += 1) ids.add(makeEntryId());
-  assert.equal(ids.size, 500);
+  for (let i = 0; i < 5000; i += 1) ids.add(makeEntryId(1700000000000, 0.5));
+  assert.equal(ids.size, 5000, 'ต้องไม่ซ้ำแม้ now และ seed คงที่');
+});
+
+test('makeEntryId: รูปแบบขึ้นต้นด้วย led- และไม่มีอักขระที่ต้อง escape', () => {
+  const id = makeEntryId();
+  assert.match(id, /^led-[0-9a-z-]+$/, 'ใช้เป็น data attribute และในสตริง JS ได้ปลอดภัย');
 });
 
 test('ensureEntryId: ไม่ทับ id เดิม', () => {
