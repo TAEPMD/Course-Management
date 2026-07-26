@@ -14,7 +14,21 @@ const SESSION_IDLE_TTL     = 1800;   // 30 นาทีไม่มีการ�
 const SESSION_ABSOLUTE_TTL = 28800;  // 8 ชั่วโมงนับจาก login → หมดอายุเสมอ
 const PIN_MIN_LENGTH       = 6;      // นโยบายใหม่: PIN อย่างน้อย 6 หลัก
 const PIN_MAX_LENGTH       = 10;
-const PIN_HASH_ITERATIONS  = 1024;   // HMAC-SHA256 แบบวนซ้ำ (เก็บไว้ใน credential string)
+/**
+ * จำนวนรอบ HMAC-SHA256 ที่ใช้ hash PIN
+ *
+ * ⚠ อย่าเพิ่มค่านี้โดยไม่วัดเวลาจริงก่อน — `Utilities.computeHmacSha256Signature`
+ * ใน Apps Script มี overhead ประมาณ 4 ms ต่อครั้ง ค่า 1024 รอบทำให้ login ใช้เวลา
+ * ~8-12 วินาที ซึ่งเกินลิมิต Vercel serverless (10 วินาที) แล้วล็อกอินไม่ผ่านเลย
+ *
+ * 128 รอบ ≈ 0.5 วินาที · การลดค่านี้แทบไม่ลดความปลอดภัยจริง เพราะ PIN 6 หลัก
+ * มีแค่ 10^6 ความเป็นไปได้ (ต่อให้ 1024 รอบก็ brute-force ได้ถ้าหลุดทั้ง pepper)
+ * ด่านจริงคือ pepper ที่อยู่ใน ScriptProperties (ไม่ได้อยู่ในชีต) + การล็อกบัญชี
+ *
+ * จำนวนรอบถูกเก็บไว้ใน credential string (`v2$<iterations>$...`) ดังนั้นค่าเดิม
+ * ยังตรวจผ่านได้ และจะถูกอัปเกรดให้เองตอนล็อกอินสำเร็จครั้งถัดไป
+ */
+const PIN_HASH_ITERATIONS  = 128;
 const LOGIN_FAIL_WINDOW    = 900;    // นับความพยายามที่ล้มเหลวย้อนหลัง 15 นาที
 const LOGIN_MAX_FAILS      = 5;      // ผิดครบ 5 ครั้ง → ล็อกบัญชีชั่วคราว
 const LOGIN_LOCK_MAX       = 1800;   // ล็อกสูงสุด 30 นาที
@@ -157,20 +171,24 @@ function makeCredential_(pin) {
  */
 function verifyCredential_(pin, stored) {
   stored = String(stored || "").trim();
-  if (!stored) return { ok: false, legacy: false };
+  if (!stored) return { ok: false, legacy: false, iterations: 0 };
 
   if (stored.indexOf("v2$") === 0) {
     const parts = stored.split("$");
     const iterations = parseInt(parts[1], 10) || PIN_HASH_ITERATIONS;
-    return { ok: timingSafeEqual_(hashPin_(pin, parts[2], iterations), parts[3] || ""), legacy: false };
+    return {
+      ok: timingSafeEqual_(hashPin_(pin, parts[2], iterations), parts[3] || ""),
+      legacy: false,
+      iterations: iterations
+    };
   }
   if (/^[0-9]{4,10}$/.test(stored)) {
-    return { ok: timingSafeEqual_(String(pin), stored), legacy: true };
+    return { ok: timingSafeEqual_(String(pin), stored), legacy: true, iterations: 0 };
   }
   if (/^[a-f0-9]{64}$/i.test(stored)) {
-    return { ok: timingSafeEqual_(sha256Hex_(pin), stored.toLowerCase()), legacy: true };
+    return { ok: timingSafeEqual_(sha256Hex_(pin), stored.toLowerCase()), legacy: true, iterations: 0 };
   }
-  return { ok: false, legacy: false };
+  return { ok: false, legacy: false, iterations: 0 };
 }
 
 /** นโยบาย PIN — คืนข้อความเหตุผลถ้าไม่ผ่าน, คืน "" ถ้าผ่าน */
@@ -488,11 +506,9 @@ function login(identifier, pin, meta) {
     return { status: "locked", retryAfter: idWait };
   }
 
-  const lock = LockService.getScriptLock();
-  try { lock.waitLock(10000); } catch (e) {
-    return { status: "invalid" };
-  }
-
+  // ไม่ใช้ LockService ที่นี่ — login เป็นการอ่านล้วน (การเขียนมีแค่ตอนอัปเกรด
+  // credential ซึ่งจับ lock ของตัวเอง) ถ้าล็อกทั้งก้อนไว้ ผู้ใช้ที่ล็อกอินพร้อมกัน
+  // จะต่อคิวกันทีละคน แล้วคนท้าย ๆ จะโดน waitLock timeout กลายเป็น "PIN ไม่ถูกต้อง"
   try {
     const store = readUserRows_();
     const needle = id.toLowerCase();
@@ -502,10 +518,15 @@ function login(identifier, pin, meta) {
       });
     });
 
-    let matched = null, legacy = false;
+    let matched = null, legacy = false, usedIterations = 0;
     for (let i = 0; i < candidates.length; i++) {
       const result = verifyCredential_(pin, candidates[i].credential);
-      if (result.ok) { matched = candidates[i]; legacy = result.legacy; break; }
+      if (result.ok) {
+        matched = candidates[i];
+        legacy = result.legacy;
+        usedIterations = result.iterations;
+        break;
+      }
     }
     // ไม่มีบัญชีตรง → ยังคำนวณ hash หลอกหนึ่งครั้ง ให้เวลาตอบสนองใกล้เคียงกัน
     if (!matched && candidates.length === 0) {
@@ -537,6 +558,12 @@ function login(identifier, pin, meta) {
       note: mustChangePin ? "must_change_pin" : ""
     });
 
+    // credential ที่ hash ไว้ด้วยจำนวนรอบเก่า (ช้า) → เขียนใหม่ด้วยค่าปัจจุบัน
+    // ตอนนี้เรามี PIN ตัวจริงอยู่ในมือแล้ว จึง re-hash ได้โดยผู้ใช้ไม่ต้องทำอะไร
+    if (!legacy && usedIterations && usedIterations !== PIN_HASH_ITERATIONS) {
+      rehashCredential_(matched, pin);
+    }
+
     return {
       status: mustChangePin ? "must_change_pin" : "ok",
       user: user,
@@ -547,6 +574,25 @@ function login(identifier, pin, meta) {
   } catch (e) {
     Logger.log("login error: " + e.toString());
     return { status: "invalid" };
+  }
+}
+
+/**
+ * เขียน credential ใหม่ด้วยจำนวนรอบปัจจุบัน (เรียกหลังล็อกอินสำเร็จเท่านั้น)
+ * ล้มเหลวก็ไม่เป็นไร — ผู้ใช้ล็อกอินผ่านแล้ว ครั้งหน้าค่อยลองใหม่
+ */
+function rehashCredential_(row, pin) {
+  const lock = LockService.getDocumentLock();
+  try { lock.waitLock(5000); } catch (e) { return; }
+  try {
+    const store = readUserRows_();
+    const fresh = store.rows.filter(function (r) { return r.id === String(row.id); })[0];
+    if (!fresh) return;
+    store.sheet.getRange(fresh.rowNumber, store.col.PIN + 1).setValue(makeCredential_(pin));
+    cacheRemove_("users");
+    authLog_("pin_rehashed", { userId: row.id, note: "iterations=" + PIN_HASH_ITERATIONS });
+  } catch (e) {
+    Logger.log("rehashCredential_ error: " + e.toString());
   } finally {
     lock.releaseLock();
   }

@@ -82,6 +82,10 @@ function gasProxyPlugin() {
  *   depth 0  → POST body ไปที่ script.google.com
  *   depth 1+ → GET ที่ redirect URL (script.googleusercontent.com)
  */
+// GAS อาจรับ connection แล้วเงียบ — ถ้าไม่ตั้งเพดานเวลา dev server จะไม่ตอบกลับเลย
+// และเบราว์เซอร์จะค้างที่หน้าโหลดแบบไม่มี error
+const GAS_SOCKET_TIMEOUT_MS = 25000;
+
 function gasRequest(url, body, depth = 0) {
   if (depth > 8) return Promise.reject(new Error('Too many redirects'));
 
@@ -136,6 +140,11 @@ function gasRequest(url, body, depth = 0) {
         console.log(`[GAS Proxy]  ← ${resp.statusCode} (${data.length} bytes)`);
         resolve({ status: resp.statusCode, data });
       });
+    });
+
+    r.setTimeout(GAS_SOCKET_TIMEOUT_MS, () => {
+      console.error(`[GAS Proxy] ⏱ ไม่มีการตอบกลับใน ${GAS_SOCKET_TIMEOUT_MS / 1000}s (hop ${depth}) — ตัดการเชื่อมต่อ`);
+      r.destroy(new Error(`GAS ไม่ตอบกลับภายใน ${GAS_SOCKET_TIMEOUT_MS / 1000} วินาที`));
     });
 
     r.on('error', err => {

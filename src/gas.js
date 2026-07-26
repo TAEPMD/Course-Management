@@ -18,20 +18,46 @@ function gasRun(funcName, ...args) {
 }
 
 /**
+ * เพดานเวลาต่อคำขอ — ถ้าไม่มี ตัว fetch จะค้างได้ไม่จำกัดเวลาเมื่อ backend
+ * รับ connection แล้วเงียบหาย ทำให้หน้าเว็บค้างที่ "Verifying..." ตลอดไป
+ */
+const REQUEST_TIMEOUT_MS = 30000;
+const UPLOAD_TIMEOUT_MS = 120000; // อัปโหลดไฟล์ base64 ใช้เวลานานกว่าปกติ
+
+const SLOW_ACTIONS = new Set(['uploadFile']);
+
+/**
  * Session token อยู่ใน httpOnly cookie ที่ proxy เป็นคนตั้ง —
  * โค้ดฝั่งหน้าเว็บอ่านไม่ได้ ทำให้ XSS ขโมย session ไม่ได้
  * X-Requested-With เป็นด่านกัน CSRF (ฟอร์มข้ามเว็บส่ง custom header ไม่ได้)
  */
 async function proxyRun(action, ...args) {
-  const response = await fetch('/api/gas', {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Requested-With': 'niem-app',
-    },
-    body: JSON.stringify({ action, args }),
-  });
+  const limit = SLOW_ACTIONS.has(action) ? UPLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), limit);
+
+  let response;
+  try {
+    response = await fetch('/api/gas', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'niem-app',
+      },
+      body: JSON.stringify({ action, args }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new Error(`เซิร์ฟเวอร์ไม่ตอบกลับภายใน ${Math.round(limit / 1000)} วินาที — ` +
+        'กรุณาลองใหม่ หรือตรวจว่า Apps Script Web App ถูก deploy แล้ว');
+    }
+    throw new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — กรุณาตรวจอินเทอร์เน็ตแล้วลองใหม่');
+  } finally {
+    clearTimeout(timer);
+  }
+
   const data = await response.json().catch(() => null);
   if (response.status === 429) {
     return data?.result ?? { status: 'locked', retryAfter: 60 };
@@ -182,12 +208,15 @@ export async function uploadFile(base64Data, filename) {
  */
 export async function checkConnection() {
   if (isGAS()) return 'gas';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const resp = await fetch('/api/gas', {
       method:  'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'niem-app' },
       body:    JSON.stringify({ action: 'getPublicSettings', args: [] }),
+      signal:  controller.signal,
     });
     const data = await resp.json().catch(() => ({}));
 
@@ -208,9 +237,14 @@ export async function checkConnection() {
     window.__dbError = detail;
     return 'error';
   } catch (err) {
-    console.warn('[DB] checkConnection error:', err.message);
-    window.__dbError = err.message;
+    const detail = err?.name === 'AbortError'
+      ? `backend ไม่ตอบกลับภายใน ${REQUEST_TIMEOUT_MS / 1000} วินาที`
+      : err.message;
+    console.warn('[DB] checkConnection error:', detail);
+    window.__dbError = detail;
     return 'error';
+  } finally {
+    clearTimeout(timer);
   }
 }
 

@@ -31,9 +31,13 @@ function loadCodeGs() {
     CacheService: { getScriptCache: () => ({ get: () => null, put: noop, remove: noop }) },
     LockService: { getDocumentLock: () => ({ waitLock: noop, releaseLock: noop }) },
     Utilities: {
-      getUuid: () => 'uuid',
+      getUuid: () => 'uuid-0000',
+      newBlob: (value) => ({ getBytes: () => Array.from(String(value)).map((c) => c.charCodeAt(0)) }),
       computeHmacSha256Signature: () => [1, 2, 3],
-      base64Encode: () => 'x',
+      computeDigest: () => [1, 2, 3],
+      base64Encode: () => 'HASHED',
+      DigestAlgorithm: { SHA_256: 'SHA_256' },
+      Charset: { UTF_8: 'UTF_8' },
     },
     Logger: { log: (m) => logs.push(String(m)) },
     Session: { getActiveUser: () => ({ getEmail: () => '' }) },
@@ -174,6 +178,45 @@ test('รายการเก่าที่ยังไม่มี id ถื�
   const legacy = { type: 'expense', status: 'billed', amount: 100, desc: 'ของเก่า' };
   // ไม่มี id เทียบของเดิมไม่ได้ — Staff ต้องบันทึกผ่าน
   assert.doesNotThrow(() => guard([legacy], [legacy], 'Staff'));
+});
+
+// ── ต้นทุนการ hash PIN (ทำให้ login ค้างมาก่อน) ─────────────────────────────
+
+test('PIN_HASH_ITERATIONS ต้องไม่สูงจน login เกินลิมิต serverless', () => {
+  const iterations = readConst('PIN_HASH_ITERATIONS');
+  // Utilities.computeHmacSha256Signature ใน Apps Script ใช้เวลา ~4ms/ครั้ง
+  // 1024 รอบ = ~4 วินาทีต่อการ hash หนึ่งครั้ง และ login ต้อง hash ถึงสองครั้ง
+  // รวมแล้วเกิน 10 วินาทีที่ Vercel serverless ยอมให้ → ล็อกอินไม่ผ่านเลย
+  assert.ok(iterations >= 32, 'ต่ำเกินไปก็ไม่ควร');
+  assert.ok(
+    iterations <= 256,
+    `PIN_HASH_ITERATIONS = ${iterations} สูงเกินไป — เคยตั้ง 1024 แล้ว login ค้างจนใช้งานไม่ได้`
+  );
+});
+
+test('verifyCredential_ อ่านจำนวนรอบจาก credential string (ของเก่ายังตรวจผ่าน)', () => {
+  // stub ทำให้ hashPin_ คืน "HASHED" เสมอ จึงเทียบค่าได้ตรง ๆ
+  const old1024 = sandbox.verifyCredential_('123456', 'v2$1024$somesalt$HASHED');
+  assert.equal(old1024.ok, true, 'credential เดิมที่ hash ไว้ 1024 รอบต้องยังล็อกอินได้');
+  assert.equal(old1024.iterations, 1024, 'ต้องรายงานจำนวนรอบที่ใช้จริง เพื่อให้ login รู้ว่าควร re-hash');
+
+  const current = sandbox.verifyCredential_('123456', 'v2$128$somesalt$HASHED');
+  assert.equal(current.iterations, 128);
+
+  const wrong = sandbox.verifyCredential_('123456', 'v2$128$somesalt$ไม่ตรง');
+  assert.equal(wrong.ok, false);
+});
+
+test('verifyCredential_: ค่าว่าง/รูปแบบไม่รู้จัก ไม่ throw และไม่ผ่าน', () => {
+  for (const stored of ['', null, undefined, 'ขยะ']) {
+    const res = sandbox.verifyCredential_('123456', stored);
+    assert.equal(res.ok, false);
+    assert.equal(res.iterations, 0);
+  }
+});
+
+test('login มี rehashCredential_ ไว้อัปเกรด credential เก่าให้เอง', () => {
+  assert.equal(typeof sandbox.rehashCredential_, 'function');
 });
 
 test('parseLedger_: JSON พังต้องไม่ทำให้ทั้งคำขอล้ม', () => {

@@ -17,6 +17,9 @@ import {
 
 const GAS_WEB_APP_URL = process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL;
 const MAX_BODY_BYTES = 10 * 1024 * 1024; // ไฟล์แนบ base64
+// GAS บางครั้งรับ connection แล้วเงียบ — ถ้าไม่ตั้งเพดานเวลา คำขอจะค้างจน
+// Vercel ตัดเอง และฝั่งหน้าเว็บจะค้างที่หน้าโหลดโดยไม่มีข้อความบอก
+const GAS_TIMEOUT_MS = 25000;
 
 function send(res, status, body, extraHeaders = {}) {
   for (const [key, value] of Object.entries({ ...securityHeaders, ...extraHeaders })) {
@@ -72,11 +75,14 @@ export default async function handler(req, res) {
   }
 
   let data;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GAS_TIMEOUT_MS);
   try {
     const response = await fetch(GAS_WEB_APP_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(built.payload),
+      signal: controller.signal,
     });
     const text = await response.text();
     try {
@@ -86,8 +92,14 @@ export default async function handler(req, res) {
       return send(res, 502, { ok: false, error: 'Backend ตอบกลับไม่ถูกต้อง' });
     }
   } catch (error) {
+    if (error?.name === 'AbortError') {
+      console.error('[gas-proxy] GAS timed out after', GAS_TIMEOUT_MS, 'ms');
+      return send(res, 504, { ok: false, error: 'Backend ใช้เวลานานเกินไป กรุณาลองใหม่' });
+    }
     console.error('[gas-proxy] request failed:', error?.message);
     return send(res, 502, { ok: false, error: 'ติดต่อ backend ไม่สำเร็จ' });
+  } finally {
+    clearTimeout(timer);
   }
 
   const secure = (req.headers['x-forwarded-proto'] || 'https') !== 'http';
