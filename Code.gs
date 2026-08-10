@@ -7,6 +7,16 @@
 // ==========================================
 
 // --- Constants ---
+/**
+ * เวอร์ชันของโค้ดที่ deploy อยู่จริง — ส่งออกทาง getPublicSettings()
+ *
+ * Apps Script deploy ด้วยมือ และกับดักที่เจอบ่อยคือแก้โค้ดแล้วกด Save แต่ Web App
+ * ยังชี้ไปที่ version เดิม (ต้อง Deploy → Manage deployments → New version)
+ * ค่านี้ทำให้ดูออกทันทีจาก DevTools ว่าเซิร์ฟเวอร์กำลังรันโค้ดรุ่นไหน
+ * ⚠ อัปเดตค่านี้ทุกครั้งที่แก้ Code.gs แล้วตั้งใจจะ deploy
+ */
+const BACKEND_VERSION = "2026-08-01-project-accounting";
+
 const CACHE_TTL = 300;       // 5 minutes
 
 // --- Security policy ---
@@ -54,6 +64,7 @@ const ROLE_APPROVERS  = ["Admin", "Staff"];
 const BUDGET_WORKFLOW = ["requested", "approved", "obligated", "billed", "claiming", "paid"];
 // สถานะที่ผู้ตั้งเรื่อง (เช่น Instructor) ยังแก้เนื้อรายการได้
 const BUDGET_OPEN_STATUSES = ["requested", "rejected"];
+const ACCOUNTING_ACCOUNT_CODES = ["1100", "1200", "1300", "1400", "2100", "2200", "3100", "4100", "5101", "5102", "5103", "5104", "5105", "5106", "5199"];
 
 // --- Shared Spreadsheet Accessor (ลดการเรียก getActiveSpreadsheet ซ้ำ) ---
 function getSpreadsheet_() {
@@ -67,19 +78,27 @@ function getSheet_(name) {
 }
 
 function ensureProjectTasksColumn_(sheet) {
-  const lastCol = Math.max(sheet.getLastColumn(), 1);
+  let lastCol = Math.max(sheet.getLastColumn(), 1);
   const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0]
     .map(function(header) { return String(header || ""); });
+  let changed = false;
 
-  if (headers.indexOf("Tasks") > -1) return;
+  ["Tasks", "BudgetControl", "Accounting"].forEach(function(requiredHeader) {
+    if (headers.indexOf(requiredHeader) > -1) return;
+    lastCol += 1;
+    sheet.getRange(1, lastCol)
+      .setValue(requiredHeader)
+      .setFontWeight("bold")
+      .setBackground("#1e3a8a")
+      .setFontColor("#ffffff");
+    headers.push(requiredHeader);
+    changed = true;
+  });
 
-  sheet.getRange(1, lastCol + 1)
-    .setValue("Tasks")
-    .setFontWeight("bold")
-    .setBackground("#1e3a8a")
-    .setFontColor("#ffffff");
-  cacheRemove_("projects");
-  SpreadsheetApp.flush();
+  if (changed) {
+    cacheRemove_("projects");
+    SpreadsheetApp.flush();
+  }
 }
 
 // --- Cache Helpers (ลดจำนวนครั้งที่อ่าน Sheet) ---
@@ -304,6 +323,82 @@ function sessionKey_(token) {
   return "sess" + sessionEpoch_() + "_" + sha256Hex_(token);
 }
 
+/**
+ * สำเนา session ถาวรใน ScriptProperties
+ *
+ * CacheService เป็น best-effort — Apps Script ล้างของในนั้นเมื่อไรก็ได้ และ
+ * ถูกล้างยกชุดทุกครั้งที่ deploy สคริปต์ใหม่ ถ้าเก็บ session ไว้แค่ใน cache
+ * ผู้ใช้ที่กำลังทำงานอยู่จะโดนเด้งเป็น "Session หมดอายุ" ทั้งที่ยังไม่หมดอายุจริง
+ * cache ยังเป็นทางอ่านหลัก (เร็ว) ส่วนสำเนานี้ไว้กู้คืนตอน cache หาย
+ */
+const SESSION_PROP_SYNC_SECONDS = 300;  // ระหว่างใช้งาน อัปเดตสำเนาอย่างช้าทุก 5 นาที
+const SESSION_SWEEP_INTERVAL    = 3600; // เก็บกวาดสำเนาที่ตายแล้วอย่างช้าทุกชั่วโมง
+const SESSION_SWEEP_KEY         = "SESSION_SWEEP_AT";
+const SESSION_KEY_PATTERN       = /^sess\d+_/;
+
+function readSessionCopy_(key) {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+function writeSessionCopy_(key, payload) {
+  try {
+    PropertiesService.getScriptProperties().setProperty(key, JSON.stringify(payload));
+    return true;
+  } catch (e) {
+    // ยังทำงานต่อได้ด้วย cache แต่ session จะกลับไปเปราะเหมือนเดิม
+    // (เช่น ScriptProperties เต็มโควตา) — ต้องเห็นใน log ไม่ใช่เงียบหาย
+    Logger.log("writeSessionCopy_ failed: " + e.toString());
+    authLog_("session_copy_failed", { note: String(e.message || e).substring(0, 120) });
+    return false;
+  }
+}
+
+function dropSessionCopy_(key) {
+  try { PropertiesService.getScriptProperties().deleteProperty(key); } catch (e) {}
+}
+
+/**
+ * ลบสำเนาที่หมดอายุแล้ว — ScriptProperties มีเพดานพื้นที่ ปล่อยสะสมไม่ได้
+ * เผื่อเวลา sync ไว้ด้วย เพราะ seen ในสำเนาอาจตามหลังของจริงได้ถึง 5 นาที
+ */
+function sweepSessionCopies_(force) {
+  // ห่อทั้งก้อน — งานเก็บกวาดล้มเหลวต้องไม่ทำให้ล็อกอินล้มไปด้วย
+  // (เช่น ScriptProperties เต็มโควตา แล้ว setProperty โยน exception)
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const now = Math.floor(Date.now() / 1000);
+
+    if (!force) {
+      const last = Number(props.getProperty(SESSION_SWEEP_KEY) || 0);
+      if (last && now - last < SESSION_SWEEP_INTERVAL) return 0;
+    }
+    props.setProperty(SESSION_SWEEP_KEY, String(now));
+
+    const idleLimit = SESSION_IDLE_TTL + SESSION_PROP_SYNC_SECONDS;
+    const all = props.getProperties();
+    let removed = 0;
+
+    Object.keys(all).forEach(function (key) {
+      if (!SESSION_KEY_PATTERN.test(key)) return;
+      let payload = null;
+      try { payload = JSON.parse(all[key]); } catch (e) { payload = null; }
+      const dead = !payload || !payload.exp || now >= payload.exp ||
+                   (payload.seen && now - payload.seen > idleLimit);
+      if (dead) {
+        props.deleteProperty(key);
+        removed++;
+      }
+    });
+    return removed;
+  } catch (e) {
+    Logger.log("sweepSessionCopies_ failed: " + e.toString());
+    return 0;
+  }
+}
+
 function createApiSession_(user, meta, mustChangePin) {
   const token = randomToken_();
   const now = Math.floor(Date.now() / 1000);
@@ -315,47 +410,69 @@ function createApiSession_(user, meta, mustChangePin) {
     ua: (meta && meta.ua) || "",
     mcp: !!mustChangePin // ยังต้องตั้ง PIN ใหม่ก่อนใช้งานส่วนอื่น
   };
-  CacheService.getScriptCache().put(sessionKey_(token), JSON.stringify(payload), SESSION_IDLE_TTL);
+  const key = sessionKey_(token);
+  CacheService.getScriptCache().put(key, JSON.stringify(payload), SESSION_IDLE_TTL);
+  writeSessionCopy_(key, payload);
+  sweepSessionCopies_(false);
   return token;
 }
 
 /** ปลดสถานะ "ต้องเปลี่ยน PIN" หลังตั้ง PIN ใหม่สำเร็จ */
 function clearMustChangePin_(token) {
   if (!token) return;
+  const key = sessionKey_(token);
   const cache = CacheService.getScriptCache();
-  const raw = cache.get(sessionKey_(token));
-  if (!raw) return;
-  try {
-    const payload = JSON.parse(raw);
-    payload.mcp = false;
-    cache.put(sessionKey_(token), JSON.stringify(payload), SESSION_IDLE_TTL);
-  } catch (e) { /* session จะหมดอายุเองอยู่แล้ว */ }
+  const raw = cache.get(key);
+  let payload = null;
+  try { payload = raw ? JSON.parse(raw) : readSessionCopy_(key); }
+  catch (e) { payload = readSessionCopy_(key); }
+  if (!payload) return;
+
+  payload.mcp = false;
+  cache.put(key, JSON.stringify(payload), SESSION_IDLE_TTL);
+  writeSessionCopy_(key, payload);
 }
 
 /** อ่าน session + ต่ออายุแบบ sliding (idle timeout) และบังคับ absolute timeout */
 function getApiSession_(token, meta) {
   if (!token) return null;
+  const key = sessionKey_(token);
   const cache = CacheService.getScriptCache();
-  const raw = cache.get(sessionKey_(token));
-  if (!raw) return null;
 
-  let payload;
-  try { payload = JSON.parse(raw); } catch (e) { return null; }
+  let payload = null;
+  const raw = cache.get(key);
+  if (raw) {
+    try { payload = JSON.parse(raw); } catch (e) { payload = null; }
+  }
+
+  // cache หายแต่ session ยังไม่หมดอายุ → กู้จากสำเนาถาวร
+  // (เกิดทุกครั้งที่ deploy สคริปต์ใหม่ และเกิดเองได้เมื่อ Apps Script ล้าง cache)
+  const restored = !payload;
+  if (restored) payload = readSessionCopy_(key);
+  if (!payload) return null;
 
   const now = Math.floor(Date.now() / 1000);
   if (!payload.exp || now >= payload.exp) {
-    cache.remove(sessionKey_(token));
+    revokeApiSession_(token);
+    return null;
+  }
+  // idle timeout: ทาง cache หมดอายุเองด้วย TTL แต่สำเนาถาวรไม่มี TTL ต้องเช็คเอง
+  if (restored && payload.seen && now - payload.seen > SESSION_IDLE_TTL) {
+    revokeApiSession_(token);
     return null;
   }
   // ผูก session กับ user-agent — token ที่ถูกขโมยไปใช้ที่เครื่องอื่นจะใช้ไม่ได้
   if (payload.ua && meta && meta.ua && payload.ua !== meta.ua) {
     authLog_("session_ua_mismatch", { userId: payload.user && payload.user.id, client: (meta && meta.client) || "" });
-    cache.remove(sessionKey_(token));
+    revokeApiSession_(token);
     return null;
   }
 
+  const lastSync = payload.seen || 0;
   payload.seen = now;
-  cache.put(sessionKey_(token), JSON.stringify(payload), SESSION_IDLE_TTL);
+  cache.put(key, JSON.stringify(payload), SESSION_IDLE_TTL);
+  // ไม่เขียนสำเนาทุกคำขอ — เขียน properties ทุกครั้งจะถ่วงทุก request โดยไม่จำเป็น
+  if (restored || now - lastSync >= SESSION_PROP_SYNC_SECONDS) writeSessionCopy_(key, payload);
 
   const user = payload.user || {};
   user.mustChangePin = !!payload.mcp;
@@ -364,7 +481,9 @@ function getApiSession_(token, meta) {
 
 function revokeApiSession_(token) {
   if (!token) return;
-  try { CacheService.getScriptCache().remove(sessionKey_(token)); } catch (e) {}
+  const key = sessionKey_(token);
+  try { CacheService.getScriptCache().remove(key); } catch (e) {}
+  dropSessionCopy_(key);
 }
 
 function requireApiSession_(token, meta) {
@@ -777,9 +896,11 @@ function brandingSettings_() {
 /** เฉพาะ branding — เปิดให้หน้า Login เรียกได้โดยไม่ต้องมี session */
 function getPublicSettings() {
   const cached = cacheGet_("public_settings");
-  if (cached) return cached;
-  const result = brandingSettings_();
-  cachePut_("public_settings", result, 600);
+  const result = cached || brandingSettings_();
+  if (!cached) cachePut_("public_settings", result, 600);
+  // ใส่ทีหลัง cachePut_ เสมอ — เวอร์ชันต้องสะท้อนโค้ดที่รันอยู่จริง
+  // ไม่ใช่ค่าที่ค้างใน cache จาก deployment ก่อนหน้า
+  result.backendVersion = BACKEND_VERSION;
   return result;
 }
 
@@ -815,6 +936,8 @@ function getProjects(session) {
   if (cached) {
     return cached.map(function(project) {
       project.tasks = project.tasks || [];
+      project.budgetControl = project.budgetControl || {};
+      project.accounting = project.accounting || {};
       return project;
     });
   }
@@ -830,11 +953,13 @@ function getProjects(session) {
   for (let i = 0; i < data.length; i++) {
     if (!data[i][0]) continue; // skip empty rows
 
-    let docs = [], schedules = [], ledger = [], tasks = [];
+    let docs = [], schedules = [], ledger = [], tasks = [], budgetControl = {}, accounting = {};
     try { docs      = data[i][15] ? JSON.parse(data[i][15]) : []; } catch (e) {}
     try { schedules = data[i][16] ? JSON.parse(data[i][16]) : []; } catch (e) {}
     try { ledger    = data[i][17] ? JSON.parse(data[i][17]) : []; } catch (e) {}
     try { tasks     = data[i][18] ? JSON.parse(data[i][18]) : []; } catch (e) {}
+    try { budgetControl = data[i][19] ? JSON.parse(data[i][19]) : {}; } catch (e) {}
+    try { accounting = data[i][20] ? JSON.parse(data[i][20]) : {}; } catch (e) {}
 
     projects.push({
       id:         String(data[i][0]) || '-',
@@ -855,7 +980,9 @@ function getProjects(session) {
       docs:       docs,
       schedules:  schedules,
       ledger:     ledger,
-      tasks:      tasks
+      tasks:      tasks,
+      budgetControl: budgetControl,
+      accounting: accounting
     });
   }
 
@@ -962,6 +1089,108 @@ function guardLedgerChanges_(incoming, existing, session) {
   }
 }
 
+/** Baseline / forecast may only be changed by Admin or Staff. */
+function guardBudgetControlChanges_(incomingBudget, incomingControl, existingBudget, existingControl, session) {
+  const user = checkAuth(session);
+  const role = normalizeRole_(user && user.role);
+  if (ROLE_APPROVERS.indexOf(role) !== -1) return;
+
+  const budgetChanged = Number(incomingBudget || 0) !== Number(existingBudget || 0);
+  const controlChanged = JSON.stringify(incomingControl || {}) !== JSON.stringify(existingControl || {});
+  if (!budgetChanged && !controlChanged) return;
+
+  authLog_("budget_control_forbidden", { userId: user && user.id, note: role });
+  throw new Error("Forbidden: ไม่มีสิทธิ์แก้ไขวงเงิน Baseline หรือ Forecast");
+}
+
+/** Journal payload must remain double-entry and may only be changed by Admin/Staff. */
+function validateAccountingPayload_(accounting) {
+  const journals = accounting && Array.isArray(accounting.journals) ? accounting.journals : [];
+  for (let i = 0; i < journals.length; i++) {
+    const journal = journals[i] || {};
+    if (journal.status === "voided") continue;
+    if (!journal.date || !journal.description || !Array.isArray(journal.lines) || journal.lines.length < 2) {
+      throw new Error("Accounting: รายการสมุดรายวันไม่ครบถ้วน");
+    }
+    let debit = 0;
+    let credit = 0;
+    for (let j = 0; j < journal.lines.length; j++) {
+      const line = journal.lines[j] || {};
+      const lineDebit = Number(line.debit) || 0;
+      const lineCredit = Number(line.credit) || 0;
+      if (ACCOUNTING_ACCOUNT_CODES.indexOf(String(line.account || "")) === -1) {
+        throw new Error("Accounting: ไม่พบรหัสบัญชี " + String(line.account || ""));
+      }
+      if (lineDebit < 0 || lineCredit < 0 || (lineDebit > 0 && lineCredit > 0) || (lineDebit === 0 && lineCredit === 0)) {
+        throw new Error("Accounting: เดบิต/เครดิตของแต่ละบรรทัดไม่ถูกต้อง");
+      }
+      debit += lineDebit;
+      credit += lineCredit;
+    }
+    if (Math.round(Math.abs(debit - credit) * 100) !== 0) {
+      throw new Error("Accounting: เดบิตและเครดิตไม่สมดุล");
+    }
+  }
+}
+
+function accountingComparable_(accounting) {
+  const value = accounting && typeof accounting === "object"
+    ? JSON.parse(JSON.stringify(accounting))
+    : {};
+  if (Array.isArray(value.journals) && value.journals.length === 0) delete value.journals;
+  if (Array.isArray(value.reconciliations) && value.reconciliations.length === 0) delete value.reconciliations;
+  return JSON.stringify(value);
+}
+
+/** A closed period is immutable, including its opening balance and posted journals. */
+function guardClosedAccountingPeriod_(incoming, existing) {
+  const closedThrough = String(existing && existing.closedThrough || "");
+  if (!closedThrough) return;
+  const nextClosedThrough = String(incoming && incoming.closedThrough || "");
+  if (!nextClosedThrough || nextClosedThrough < closedThrough) {
+    throw new Error("Accounting: ไม่สามารถเปิดหรือย้อนวันที่งวดบัญชีที่ปิดแล้ว");
+  }
+  if (String(incoming.openingDate || "") !== String(existing.openingDate || "")
+      || Number(incoming.openingCash || 0) !== Number(existing.openingCash || 0)) {
+    throw new Error("Accounting: ไม่สามารถแก้ยอดยกมาของงวดที่ปิดแล้ว");
+  }
+
+  const before = {};
+  const oldJournals = Array.isArray(existing.journals) ? existing.journals : [];
+  const newJournals = Array.isArray(incoming.journals) ? incoming.journals : [];
+  for (let i = 0; i < oldJournals.length; i++) {
+    const journal = oldJournals[i] || {};
+    if (journal.id) before[String(journal.id)] = journal;
+  }
+  const after = {};
+  for (let i = 0; i < newJournals.length; i++) {
+    const journal = newJournals[i] || {};
+    if (journal.id) after[String(journal.id)] = journal;
+    if (String(journal.date || "") <= closedThrough && (!journal.id || !before[String(journal.id)])) {
+      throw new Error("Accounting: ไม่สามารถเพิ่มรายการในงวดที่ปิดแล้ว");
+    }
+  }
+  for (const id in before) {
+    const journal = before[id];
+    if (String(journal.date || "") <= closedThrough
+        && JSON.stringify(journal) !== JSON.stringify(after[id] || null)) {
+      throw new Error("Accounting: ไม่สามารถแก้หรือลบรายการในงวดที่ปิดแล้ว");
+    }
+  }
+}
+
+function guardAccountingChanges_(incoming, existing, session) {
+  validateAccountingPayload_(incoming || {});
+  guardClosedAccountingPeriod_(incoming || {}, existing || {});
+  const user = checkAuth(session);
+  const role = normalizeRole_(user && user.role);
+  const changed = accountingComparable_(incoming) !== accountingComparable_(existing);
+  if (!changed || ROLE_APPROVERS.indexOf(role) !== -1) return;
+
+  authLog_("accounting_forbidden", { userId: user && user.id, note: role });
+  throw new Error("Forbidden: บันทึกบัญชี ปิดงวด และกระทบยอดได้เฉพาะ Admin หรือ Staff");
+}
+
 function saveProject(p, session) {
   checkAuth(session);
 
@@ -977,16 +1206,28 @@ function saveProject(p, session) {
     let rowIndex = -1;
 
     let existingLedger = [];
+    let existingBudget = 0;
+    let existingBudgetControl = {};
+    let existingAccounting = {};
     for (let i = 1; i < data.length; i++) {
       if (String(data[i][0]) === String(p.id)) {
         rowIndex = i + 1;
+        existingBudget = Number(data[i][5]) || 0;
         existingLedger = parseLedger_(data[i][17]);
+        try { existingBudgetControl = data[i][19] ? JSON.parse(data[i][19]) : {}; } catch (e) {}
+        try { existingAccounting = data[i][20] ? JSON.parse(data[i][20]) : {}; } catch (e) {}
         break;
       }
     }
 
     // ตรวจสายอนุมัติเบิกจ่ายก่อนเขียนทับ — UI ซ่อนปุ่มให้แล้วแต่ API ยังถูกยิงตรงได้
     guardLedgerChanges_(Array.isArray(p.ledger) ? p.ledger : [], existingLedger, session);
+    if (rowIndex > -1) {
+      guardBudgetControlChanges_(p.budget, p.budgetControl, existingBudget, existingBudgetControl, session);
+      guardAccountingChanges_(p.accounting, existingAccounting, session);
+    } else {
+      guardAccountingChanges_(p.accounting, {}, session);
+    }
 
     const rowData = [
       p.id, p.name, p.year, p.status,
@@ -998,7 +1239,9 @@ function saveProject(p, session) {
       JSON.stringify(p.docs || []),
       JSON.stringify(p.schedules || []),
       JSON.stringify(p.ledger || []),
-      JSON.stringify(p.tasks || [])
+      JSON.stringify(p.tasks || []),
+      JSON.stringify(p.budgetControl || {}),
+      JSON.stringify(p.accounting || {})
     ];
 
     if (rowIndex > -1) {
@@ -1283,7 +1526,7 @@ function setupDatabase() {
     "ID", "Name", "Year", "Status", "People", "Budget",
     "StartMonth", "EndMonth", "Health", "Priority", "Progress",
     "CME", "Category", "Audience", "Assessment",
-    "Docs", "Schedules", "Ledger", "Tasks"
+    "Docs", "Schedules", "Ledger", "Tasks", "BudgetControl", "Accounting"
   ];
   sheetProj.getRange(1, 1, 1, headersProj.length)
     .setValues([headersProj]).setFontWeight("bold")

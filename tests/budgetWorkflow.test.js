@@ -18,6 +18,7 @@ import {
   isPaidExpense,
   isClaimQueue,
   getBudgetSummary,
+  getBudgetPerformance,
   getBudgetAlerts,
   getBudgetDecision,
   getCategoryBreakdown,
@@ -133,6 +134,62 @@ test('getBudgetSummary: pct ถูกบีบไว้ที่ 100 แม้�
   const s = getBudgetSummary({ budget: 100, ledger: [{ type: 'expense', amount: 500 }] });
   assert.equal(s.pct, 100);
   assert.equal(s.available, -400, 'ยอดคงเหลือติดลบได้ เพื่อให้เห็นว่าเกินเท่าไร');
+});
+
+test('getBudgetPerformance: คำนวณ BAC/PV/EV/AC และดัชนี EVM', () => {
+  const p = {
+    budget: 100000,
+    progress: 50,
+    budgetControl: { baselineAmount: 100000, plannedProgress: 60, forecastEtc: 35000 },
+    ledger: [{ type: 'expense', status: 'paid', amount: 40000 }],
+  };
+  const perf = getBudgetPerformance(p);
+  assert.equal(perf.bac, 100000);
+  assert.equal(perf.pv, 60000);
+  assert.equal(perf.ev, 50000);
+  assert.equal(perf.ac, 40000);
+  assert.equal(perf.cpi, 1.25);
+  assert.equal(Math.round(perf.spi * 100) / 100, 0.83);
+  assert.equal(perf.eac, 75000);
+  assert.equal(perf.vac, 25000);
+});
+
+test('getBudgetPerformance: ใช้ statistical ETC เมื่อยังไม่ทบทวน forecast', () => {
+  const p = {
+    budget: 100000,
+    progress: 50,
+    ledger: [
+      { type: 'expense', status: 'paid', amount: 25000 },
+      { type: 'expense', status: 'obligated', amount: 15000 },
+    ],
+  };
+  const perf = getBudgetPerformance(p);
+  assert.equal(perf.hasManualEtc, false);
+  assert.equal(perf.cpi, 2);
+  assert.equal(perf.statisticalEtc, 25000);
+  assert.equal(perf.eac, 50000);
+});
+
+test('getBudgetPerformance: รวม contingency ใน EAC และแจ้งเสี่ยงเมื่อเกิน baseline', () => {
+  const p = {
+    budget: 100000,
+    progress: 30,
+    budgetControl: { baselineAmount: 100000, plannedProgress: 40, forecastEtc: 90000, contingency: 10000 },
+    ledger: [{ type: 'expense', status: 'paid', amount: 20000 }],
+  };
+  const perf = getBudgetPerformance(p);
+  assert.equal(perf.eac, 120000);
+  assert.equal(perf.vac, -20000);
+  assert.equal(perf.tone, 'risk');
+});
+
+test('getBudgetPerformance: ไม่มีงบต้องไม่คืน NaN/Infinity', () => {
+  const perf = getBudgetPerformance({ ledger: [] });
+  assert.equal(perf.bac, 0);
+  assert.equal(perf.eac, 0);
+  assert.equal(perf.cpi, null);
+  assert.equal(perf.spi, null);
+  assert.equal(perf.tcpi, null);
 });
 
 // ── การแจ้งเตือน ────────────────────────────────────────────────────────────

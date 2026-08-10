@@ -156,103 +156,110 @@
 
         <div class="flex-1 overflow-y-auto" id="scroll-container">
             
-            <!-- View: Login (Redesigned) -->
-            <div id="view-login" class="login-stage min-h-full p-4 md:p-8 relative overflow-hidden">
-                <div class="absolute top-10 left-[8%] w-36 h-36 border border-blue-200/70 rounded-full"></div>
-                <div class="absolute bottom-10 right-[6%] w-52 h-52 border border-indigo-200/70 rounded-[30px] rotate-12"></div>
-
-                <div class="max-w-6xl mx-auto w-full h-full flex items-center justify-center relative z-10">
-                    <div class="login-shell w-full animate-fade">
-                        <section class="login-brand hidden lg:flex flex-col justify-between p-10 xl:p-12">
-                            <div class="relative z-10">
-                                <div class="inline-flex items-center px-4 py-2 rounded-full bg-white/15 border border-white/20 text-[11px] font-bold tracking-widest uppercase mb-6">
-                                    Emergency Learning Portal
-                                </div>
-                                <h1 class="text-4xl xl:text-5xl font-black leading-tight text-white">Welcome to the<br>Training Command Center</h1>
-                                <p class="mt-5 text-sm xl:text-base text-blue-100/90 leading-relaxed">บริหารจัดการหลักสูตร บุคลากร และแผนงานประจำปีในพื้นที่เดียวด้วยระบบที่ออกแบบสำหรับหน่วยงานแพทย์ฉุกเฉิน</p>
+            <!-- View: Login -->
+            <div id="view-login" class="login-stage min-h-full">
+                <div class="login-wrap">
+                    <div class="login-shell animate-fade">
+                        <!-- แผงแบรนด์ (ซ่อนอัตโนมัติต่ำกว่า 1024px — ฟอร์มจะมีโลโก้/ชื่อระบบของตัวเอง) -->
+                        <section class="login-brand">
+                            <div class="login-brand-top">
+                                <p class="login-brand-badge">Emergency Learning Portal</p>
+                                <h1 class="login-brand-title">ระบบบริหารจัดการ<br>หลักสูตรฝึกอบรม</h1>
+                                <p class="login-brand-lead">รวมหลักสูตร บุคลากร งบประมาณ และแผนงานประจำปีไว้ในที่เดียว ออกแบบสำหรับหน่วยงานการแพทย์ฉุกเฉิน</p>
                             </div>
 
-                            <div class="grid grid-cols-2 gap-4 relative z-10">
-                                <div class="login-kpi">
-                                    <p class="text-2xl font-black text-white">24/7</p>
-                                    <p class="text-xs font-semibold uppercase tracking-wider text-blue-100/80">System Ready</p>
-                                </div>
-                                <div class="login-kpi">
-                                    <p class="text-2xl font-black text-white">Secure</p>
-                                    <p class="text-xs font-semibold uppercase tracking-wider text-blue-100/80">PIN Authentication</p>
-                                </div>
-                            </div>
+                            <ul class="login-brand-points">
+                                <li>
+                                    <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+                                    <span><strong>ยืนยันตัวตนด้วย PIN 6 หลัก</strong>ระบบล็อกชั่วคราวอัตโนมัติเมื่อกรอกผิดหลายครั้ง</span>
+                                </li>
+                                <li>
+                                    <i class="fa-solid fa-user-shield" aria-hidden="true"></i>
+                                    <span><strong>สิทธิ์ใช้งานตามบทบาท</strong>เห็นและแก้ไขได้เฉพาะส่วนที่รับผิดชอบ</span>
+                                </li>
+                                <li>
+                                    <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
+                                    <span><strong>ออกจากระบบอัตโนมัติ</strong>เมื่อไม่มีการใช้งานนานเกิน 30 นาที</span>
+                                </li>
+                            </ul>
                         </section>
 
-                        <section class="login-auth p-7 sm:p-10 lg:p-12">
-                            <form id="login-form" class="max-w-md mx-auto" novalidate>
-                                <div class="flex items-center justify-between mb-8">
-                                    <div>
-                                        <p class="text-[11px] font-black tracking-widest uppercase text-blue-500">Sign In</p>
-                                        <h2 id="login-site-name" class="text-3xl font-black text-slate-900 tracking-tight">NIEM Management</h2>
-                                        <p class="text-sm text-slate-500 mt-2">เข้าสู่ระบบด้วยชื่อผู้ใช้และรหัส PIN 6 หลัก</p>
+                        <section class="login-auth">
+                            <form id="login-form" class="login-form" novalidate>
+                                <div class="login-head">
+                                    <span class="login-logo">
+                                        <i id="login-logo-icon" class="fa-solid fa-star-of-life" aria-hidden="true"></i>
+                                        <img id="login-logo-img" src="" class="hidden" alt="">
+                                    </span>
+                                    <p class="login-eyebrow">เข้าสู่ระบบ</p>
+                                    <h2 id="login-site-name">NIEM Management</h2>
+                                    <p class="login-sub">ใช้ชื่อผู้ใช้และรหัส PIN 6 หลักที่ได้รับจากผู้ดูแลระบบ</p>
+                                </div>
+
+                                <div class="login-field">
+                                    <label for="login-identifier" class="login-label">ชื่อผู้ใช้ หรือ อีเมล</label>
+                                    <div class="login-input-wrap">
+                                        <i class="fa-solid fa-user" aria-hidden="true"></i>
+                                        <input id="login-identifier" name="username" type="text" autocomplete="username"
+                                               autocapitalize="none" spellcheck="false" required
+                                               class="login-input" placeholder="somchai หรือ somchai@niems.go.th">
                                     </div>
-                                    <div class="w-14 h-14 rounded-2xl bg-blue-900 flex items-center justify-center text-white shadow-xl shadow-blue-900/30 overflow-hidden border-2 border-white">
-                                        <i id="login-logo-icon" class="fa-solid fa-star-of-life text-2xl"></i>
-                                        <img id="login-logo-img" src="" class="hidden w-full h-full object-cover bg-white" alt="">
+                                </div>
+
+                                <div class="login-field">
+                                    <div class="login-field-row">
+                                        <label for="login-pin-input" class="login-label">รหัส PIN (6 หลัก)</label>
+                                        <button type="button" id="login-pin-toggle" class="login-ghost-btn" aria-pressed="false">
+                                            <i id="login-pin-toggle-icon" class="fa-solid fa-eye" aria-hidden="true"></i>
+                                            <span id="login-pin-toggle-text">แสดง PIN</span>
+                                        </button>
                                     </div>
-                                </div>
 
-                                <div class="mb-5">
-                                    <label for="login-identifier" class="block text-xs font-bold text-slate-500 mb-1.5">ชื่อผู้ใช้ หรือ อีเมล</label>
-                                    <input id="login-identifier" name="username" type="text" autocomplete="username"
-                                           autocapitalize="none" spellcheck="false" required
-                                           class="input-modern bg-slate-50" placeholder="เช่น somchai หรือ somchai@niems.go.th">
+                                    <!-- ช่อง PIN เดียว: input จริงซ้อนโปร่งใสอยู่บนกล่อง 6 ช่อง
+                                         (คลิก/แตะที่กล่องคือการโฟกัส input — ไม่มีช่องกรอกซ้ำซ้อนอีกช่อง) -->
+                                    <div class="pin-field" id="pin-field">
+                                        <input id="login-pin-input" name="pin" type="password" inputmode="numeric" pattern="[0-9]*"
+                                               maxlength="6" autocomplete="current-password" required
+                                               class="pin-input" aria-describedby="pin-status login-pin-hint">
+                                        <div class="pin-boxes" id="pin-display" aria-hidden="true">
+                                            <div class="pin-box"></div>
+                                            <div class="pin-box"></div>
+                                            <div class="pin-box"></div>
+                                            <div class="pin-box"></div>
+                                            <div class="pin-box"></div>
+                                            <div class="pin-box"></div>
+                                        </div>
+                                    </div>
+                                    <p id="pin-status" class="sr-only" aria-live="polite"></p>
+                                    <p id="login-pin-hint" class="login-hint">ยังใช้ PIN เดิม 5 หลักอยู่? กรอกแล้วกด “เข้าสู่ระบบ” ระบบจะพาไปตั้ง PIN 6 หลักใหม่</p>
                                 </div>
-
-                                <div class="flex items-center justify-between mb-2">
-                                    <span class="text-xs font-bold text-slate-500">รหัส PIN (6 หลัก)</span>
-                                    <button type="button" id="login-pin-toggle" class="text-[11px] font-bold text-blue-600 hover:text-blue-800"
-                                            aria-pressed="false">แสดง PIN</button>
-                                </div>
-
-                                <div class="flex justify-center gap-3 mb-4" id="pin-display" role="img" aria-label="ช่องกรอกรหัส PIN 6 หลัก">
-                                    <div class="pin-box"></div>
-                                    <div class="pin-box"></div>
-                                    <div class="pin-box"></div>
-                                    <div class="pin-box"></div>
-                                    <div class="pin-box"></div>
-                                    <div class="pin-box"></div>
-                                </div>
-                                <p id="pin-status" class="sr-only" aria-live="polite"></p>
-
-                                <div class="mb-4">
-                                    <label for="login-pin-input" class="sr-only">รหัส PIN</label>
-                                    <input id="login-pin-input" name="pin" type="password" inputmode="numeric" pattern="[0-9]*"
-                                           maxlength="6" autocomplete="current-password" required
-                                           class="input-modern text-center tracking-[0.5em] text-lg bg-slate-50" placeholder="พิมพ์ PIN 6 หลัก">
-                                </div>
-
-                                <p class="text-[11px] text-slate-400 mb-1">
-                                    ถ้ายังใช้ PIN เดิม 5 หลัก: กรอกแล้วกดปุ่ม “เข้าสู่ระบบ” ระบบจะให้ตั้ง PIN 6 หลักใหม่
-                                </p>
 
                                 <p id="login-error" class="hidden login-error-box" role="alert" aria-live="assertive"></p>
                                 <p id="login-lock" class="hidden login-lock-box" role="status" aria-live="polite"></p>
 
-                                <div class="grid grid-cols-3 gap-3 mb-5 mt-5" id="login-numpad">
+                                <button type="button" id="login-numpad-toggle" class="login-ghost-btn login-numpad-toggle"
+                                        aria-expanded="false" aria-controls="login-numpad">
+                                    <i class="fa-solid fa-table-cells-large" aria-hidden="true"></i>
+                                    <span id="login-numpad-toggle-text">ใช้แป้นตัวเลขบนหน้าจอ</span>
+                                </button>
+
+                                <div class="login-numpad hidden" id="login-numpad">
                                     <!-- Generated by JS -->
                                 </div>
 
-                                <button type="submit" id="login-submit"
-                                        class="w-full grad-primary text-white rounded-2xl py-3.5 font-bold text-sm shadow-lg shadow-blue-900/25 hover:scale-[1.01] active:scale-95 transition-transform">
-                                    <i class="fa-solid fa-right-to-bracket mr-2" aria-hidden="true"></i>เข้าสู่ระบบ
+                                <button type="submit" id="login-submit" class="login-submit">
+                                    <span class="login-submit-idle">
+                                        <i class="fa-solid fa-right-to-bracket" aria-hidden="true"></i>เข้าสู่ระบบ
+                                    </span>
+                                    <span class="login-submit-busy">
+                                        <span class="login-spinner" aria-hidden="true"></span>กำลังตรวจสอบ...
+                                    </span>
                                 </button>
 
-                                <p class="mt-4 text-[11px] text-slate-400 leading-relaxed">
-                                    <i class="fa-solid fa-shield-halved mr-1" aria-hidden="true"></i>
-                                    ระบบจะล็อกชั่วคราวเมื่อกรอกผิดหลายครั้ง และออกจากระบบอัตโนมัติเมื่อไม่มีการใช้งาน 30 นาที
+                                <p class="login-foot">
+                                    <i class="fa-solid fa-lock" aria-hidden="true"></i>
+                                    <span>ลืม PIN หรือเข้าใช้งานไม่ได้? ติดต่อผู้ดูแลระบบเพื่อขอตั้งรหัสใหม่ — ระบบจะออกจากระบบอัตโนมัติเมื่อไม่มีการใช้งาน 30 นาที</span>
                                 </p>
-
-                                <div id="login-loader" class="hidden text-center mt-4">
-                                    <div class="loader-ring mx-auto mb-2"></div>
-                                    <p class="text-xs text-blue-600 font-bold uppercase tracking-widest">Verifying...</p>
-                                </div>
                             </form>
                         </section>
                     </div>
@@ -260,13 +267,13 @@
             </div>
 
             <!-- View: Dashboard (Modern Grid) -->
-            <div id="view-dashboard" class="hidden p-4 sm:p-6 max-w-7xl mx-auto space-y-6 md:space-y-8 animate-fade relative">
+            <div id="view-dashboard" class="dashboard-page hidden p-4 sm:p-6 max-w-7xl mx-auto space-y-6 md:space-y-8 animate-fade relative">
                 <!-- Floating Decorative Elements -->
                 <div class="absolute top-0 right-0 w-64 h-64 bg-blue-400/10 rounded-full blur-3xl animate-float pointer-events-none"></div>
                 <div class="absolute bottom-20 left-10 w-48 h-48 bg-indigo-400/10 rounded-full blur-3xl animate-float pointer-events-none" style="animation-delay: -2s"></div>
 
-                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
-                    <div class="flex items-start gap-3">
+                <div class="dashboard-header flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+                    <div class="dashboard-heading flex items-start gap-3">
                         <div class="dashboard-title-icon w-11 h-11 rounded-2xl grad-primary text-white flex items-center justify-center shadow-lg shadow-blue-900/20 flex-shrink-0">
                             <i class="fa-solid fa-chart-pie text-lg"></i>
                         </div>
@@ -276,15 +283,15 @@
                         </div>
                     </div>
                     <div class="flex items-center">
-                        <button onclick="app.createNewProject()" class="grad-primary hover:shadow-blue-900/40 text-white w-full md:w-auto px-6 py-3.5 rounded-2xl font-bold text-sm shadow-xl transition-all hover:scale-105 active:scale-95 flex items-center justify-center group">
+                        <button onclick="app.createNewProject()" class="dashboard-primary-action grad-primary hover:shadow-blue-900/40 text-white w-full md:w-auto px-6 py-3.5 rounded-2xl font-bold text-sm shadow-xl transition-all hover:scale-105 active:scale-95 flex items-center justify-center group">
                             <i class="fa-solid fa-plus mr-2 group-hover:rotate-90 transition-transform duration-300"></i> เพิ่มหลักสูตรใหม่
                         </button>
                     </div>
                 </div>
 
                 <!-- Stats Widgets -->
-                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 relative z-10 stat-grid">
-                    <div class="card-modern p-6 overflow-hidden relative group">
+                <div class="dashboard-stat-grid grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 relative z-10 stat-grid">
+                    <div class="dashboard-stat-card dashboard-stat-card--courses card-modern p-6 overflow-hidden relative group">
                         <div class="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-125 transition-transform duration-500">
                             <i class="fa-solid fa-folder-tree text-6xl"></i>
                         </div>
@@ -300,7 +307,7 @@
                             <span class="text-xs font-bold text-emerald-500" id="stat-projects-active" title="จำนวนหลักสูตรที่กำลังดำเนินการ"></span>
                         </div>
                     </div>
-                    <div class="card-modern p-6 overflow-hidden relative group">
+                    <div class="dashboard-stat-card dashboard-stat-card--people card-modern p-6 overflow-hidden relative group">
                         <div class="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-125 transition-transform duration-500">
                             <i class="fa-solid fa-user-graduate text-6xl"></i>
                         </div>
@@ -313,7 +320,7 @@
                         <h3 class="text-sm font-bold text-gray-400 uppercase tracking-widest">เป้าหมายรวม</h3>
                         <p class="text-4xl font-black text-gray-900 mt-1" id="stat-people">0</p>
                     </div>
-                    <div class="card-modern p-6 overflow-hidden relative group">
+                    <div class="dashboard-stat-card dashboard-stat-card--budget card-modern p-6 overflow-hidden relative group">
                         <div class="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-125 transition-transform duration-500">
                             <i class="fa-solid fa-coins text-6xl"></i>
                         </div>
@@ -326,7 +333,7 @@
                         <h3 class="text-sm font-bold text-gray-400 uppercase tracking-widest">งบประมาณรวม</h3>
                         <p class="text-3xl font-black text-gray-900 mt-1" id="stat-budget">0</p>
                     </div>
-                    <div class="card-modern p-6 overflow-hidden relative group border-violet-100 dark:border-violet-900/30">
+                    <div class="dashboard-stat-card dashboard-stat-card--tasks card-modern p-6 overflow-hidden relative group border-violet-100 dark:border-violet-900/30">
                         <div class="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-125 transition-transform duration-500">
                             <i class="fa-solid fa-list-check text-6xl text-violet-500"></i>
                         </div>
@@ -775,6 +782,7 @@
                             <button onclick="app.switchTab('people')" class="tab-btn py-4 sm:py-5 px-4 sm:px-6 font-bold text-sm text-gray-400" data-target="tab-people">ผู้เข้าอบรม</button>
                             <button onclick="app.switchTab('schedule')" class="tab-btn py-4 sm:py-5 px-4 sm:px-6 font-bold text-sm text-gray-400" data-target="tab-schedule">ตารางเวลา</button>
                             <button onclick="app.switchTab('budget')" class="tab-btn py-4 sm:py-5 px-4 sm:px-6 font-bold text-sm text-gray-400" data-target="tab-budget">งบประมาณ</button>
+                            <button onclick="app.switchTab('accounting')" class="tab-btn py-4 sm:py-5 px-4 sm:px-6 font-bold text-sm text-gray-400" data-target="tab-accounting">บัญชีโครงการ</button>
                             <button onclick="app.switchTab('tasks')" class="tab-btn py-4 sm:py-5 px-4 sm:px-6 font-bold text-sm text-gray-400" data-target="tab-tasks">ติดตามงาน</button>
                             <button onclick="app.switchTab('governance')" class="tab-btn py-4 sm:py-5 px-4 sm:px-6 font-bold text-sm text-gray-400" data-target="tab-governance">กำกับโครงการ</button>
                             <button onclick="app.switchTab('docs')" class="tab-btn py-4 sm:py-5 px-4 sm:px-6 font-bold text-sm text-gray-400" data-target="tab-docs">เอกสาร</button>
@@ -1042,17 +1050,32 @@
                             </div>
                         </div>
 
+                        <!-- Tab: Project Accounting -->
+                        <div id="tab-accounting" class="tab-content hidden animate-fade">
+                            <div id="accounting-panel"></div>
+                        </div>
+
                         <!-- Tab: Kanban Task Board -->
-                        <div id="tab-tasks" class="tab-content hidden animate-fade">
+                        <div id="tab-tasks" class="task-workbench tab-content hidden animate-fade">
                             <!-- Header -->
-                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                            <div class="task-workbench-head flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                                 <div>
-                                    <h4 class="font-bold text-gray-800 text-lg">ติดตามงาน (Kanban / Gantt)</h4>
-                                    <p class="text-xs text-gray-400 mt-0.5">สลับมุมมองบอร์ดเพื่อจัดการสถานะ หรือมุมมอง Gantt เพื่อดูไทม์ไลน์และงานที่เลื่อนกำหนด</p>
+                                    <span class="task-workbench-eyebrow">PROJECT DELIVERY</span>
+                                    <h4 class="font-bold text-gray-800 text-lg">ติดตามงาน Kanban / Gantt</h4>
+                                    <p class="text-xs text-gray-400 mt-0.5">วางแผนงาน คุม WIP ปลด Blocker ตรวจรับผลลัพธ์ และติดตามกำหนดส่งจากจุดเดียว</p>
                                 </div>
-                                <button onclick="app.addKanbanTask('todo')" class="flex items-center gap-2 px-5 py-2.5 grad-primary text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-900/20 hover:scale-105 transition-transform">
+                                <button onclick="app.addKanbanTask('todo')" class="task-workbench-add flex items-center gap-2 px-5 py-2.5 grad-primary text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-900/20 hover:scale-105 transition-transform">
                                     <i class="fa-solid fa-plus"></i> เพิ่มงานใหม่
                                 </button>
+                            </div>
+                            <div class="task-flow-guide" aria-label="ขั้นตอนการไหลของงาน">
+                                <span><i class="fa-solid fa-inbox"></i><b>Plan</b> กำหนดเจ้าของและวันส่ง</span>
+                                <i class="fa-solid fa-chevron-right"></i>
+                                <span><i class="fa-solid fa-spinner"></i><b>Execute</b> จำกัด WIP ไม่เกิน 5</span>
+                                <i class="fa-solid fa-chevron-right"></i>
+                                <span><i class="fa-solid fa-clipboard-check"></i><b>Review</b> ตรวจตามเกณฑ์ส่งมอบ</span>
+                                <i class="fa-solid fa-chevron-right"></i>
+                                <span><i class="fa-solid fa-circle-check"></i><b>Done</b> ปิดเมื่อมีหลักฐานครบ</span>
                             </div>
                             <!-- Kanban Board -->
                             <div id="kanban-board" class="kanban-board"></div>

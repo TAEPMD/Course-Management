@@ -5,7 +5,8 @@
 
 import { state } from './modules/state.js';
 import { checkSession, logout, renderNumpad, handlePinInput, syncPinInputField, updatePinDisplay,
-         openPinChangeModal, closePinChangeModal, submitPinChange, processLogin, PIN_LENGTH } from './modules/auth.js';
+         openPinChangeModal, closePinChangeModal, submitPinChange, processLogin, PIN_LENGTH,
+         setPinReveal, isPinRevealed, clearLoginError } from './modules/auth.js';
 import { checkConnection } from './gas.js';
 import { showDashboard, showCourseManagement, showAnnualPlan, showMonthlyPlan, showWeeklyPlan,
          createNewProject, saveProjectInfo, openProject, switchTab, uploadDocument, downloadDocument, deleteDocument,
@@ -14,13 +15,14 @@ import { showDashboard, showCourseManagement, showAnnualPlan, showMonthlyPlan, s
          setCourseManagementFilter, resetCourseManagementFilters,
          addKanbanTask, editKanbanTask, deleteKanbanTask, duplicateKanbanTask, moveKanbanTask, toggleKanbanSubtask,
          addKanbanSubtaskRow, removeKanbanSubtaskRow,
-         setKanbanFilter, resetKanbanFilters, onKanbanCardClick, setKanbanView,
+         setKanbanFilter, resetKanbanFilters, setKanbanColumnSort, onKanbanCardClick, setKanbanView, setKanbanGanttScale,
          onKanbanDragStart, onKanbanDragOver, onKanbanDragEnd, onKanbanDrop } from './modules/projects.js';
 import { showUsers, showUserModal, saveUser } from './modules/users.js';
 import { showSettings, saveSettings, savePermissions, simulateRole,
          toggleDarkMode, loadDarkMode, loadPublicBranding, loadVisualControls, toggleVisualControlPanel, setVisualMode, previewLogo, uploadLogo,
          addMasterItem, saveMasterDataToCloud } from './modules/settings.js';
-import { addBudgetEntry, exportBudgetReport, renderBudgetSummary, saveBudgetToCloud, openBudgetEntry, openBillIntake } from './modules/budget.js';
+import { addBudgetEntry, captureBudgetBaseline, reviewBudgetForecast, exportBudgetReport, renderBudgetSummary, saveBudgetToCloud, openBudgetEntry, openBillIntake } from './modules/budget.js';
+import { setAccountingOpeningBalance, addAccountingJournal, voidAccountingJournal, reconcileBankAccount, closeAccountingPeriod, exportAccountingReport } from './modules/accounting.js';
 import { addScheduleSession } from './modules/schedule.js';
 
 // ── Global `app` object exposed for HTML onclick="app.xxx()" compatibility ──
@@ -75,10 +77,20 @@ window.app = {
 
   // Budget
   addBudgetEntry,
+  captureBudgetBaseline,
+  reviewBudgetForecast,
   exportBudgetReport,
   saveBudgetToCloud,
   openBudgetEntry,
   openBillIntake,
+
+  // Project accounting
+  setAccountingOpeningBalance,
+  addAccountingJournal,
+  voidAccountingJournal,
+  reconcileBankAccount,
+  closeAccountingPeriod,
+  exportAccountingReport,
 
   // Kanban
   addKanbanTask,
@@ -92,7 +104,9 @@ window.app = {
   onKanbanCardClick,
   setKanbanFilter,
   resetKanbanFilters,
+  setKanbanColumnSort,
   setKanbanView,
+  setKanbanGanttScale,
   onKanbanDragStart,
   onKanbanDragOver,
   onKanbanDragEnd,
@@ -132,30 +146,58 @@ document.addEventListener('DOMContentLoaded', () => {
     processLogin();
   });
 
-  // ปุ่มแสดง/ซ่อน PIN
-  const pinToggle = document.getElementById('login-pin-toggle');
-  pinToggle?.addEventListener('click', () => {
-    const field = document.getElementById('login-pin-input');
-    if (!field) return;
-    const show = field.type === 'password';
-    field.type = show ? 'text' : 'password';
-    pinToggle.textContent = show ? 'ซ่อน PIN' : 'แสดง PIN';
-    pinToggle.setAttribute('aria-pressed', String(show));
+  // ปุ่มแสดง/ซ่อน PIN — สลับระหว่างจุดกับตัวเลขจริงในกล่อง PIN
+  document.getElementById('login-pin-toggle')?.addEventListener('click', () => {
+    setPinReveal(!isPinRevealed());
+    document.getElementById('login-pin-input')?.focus();
   });
 
-  // PIN input field sync
+  // PIN input field sync (input จริงซ้อนโปร่งใสอยู่บนกล่อง 6 ช่อง)
   const pinInput = document.getElementById('login-pin-input');
   if (pinInput) {
     pinInput.addEventListener('input', e => {
       const sanitized = e.target.value.replace(/\D/g, '').slice(0, PIN_LENGTH);
       state.pinInput = sanitized;
+      clearLoginError();
       syncPinInputField();
       updatePinDisplay();
       if (sanitized.length === PIN_LENGTH) {
         processLogin();
       }
     });
+    // เคอร์เซอร์ต้องอยู่ท้ายสุดเสมอ ไม่งั้นตัวเลขจะแทรกกลางกล่องแบบที่ผู้ใช้ไม่ตั้งใจ
+    const toEnd = () => {
+      const end = pinInput.value.length;
+      try { pinInput.setSelectionRange(end, end); } catch { /* type=password บางเบราว์เซอร์ */ }
+    };
+    pinInput.addEventListener('focus', toEnd);
+    pinInput.addEventListener('click', toEnd);
   }
+
+  document.getElementById('login-identifier')?.addEventListener('input', clearLoginError);
+
+  // แป้นตัวเลขบนหน้าจอ: เปิดให้เองบนอุปกรณ์สัมผัส ส่วนเมาส์/คีย์บอร์ดพับเก็บไว้ก่อน
+  const numpad       = document.getElementById('login-numpad');
+  const numpadToggle = document.getElementById('login-numpad-toggle');
+  const numpadText   = document.getElementById('login-numpad-toggle-text');
+
+  function setNumpadVisible(show, persist) {
+    numpad?.classList.toggle('hidden', !show);
+    numpadToggle?.setAttribute('aria-expanded', String(show));
+    if (numpadText) numpadText.textContent = show ? 'ซ่อนแป้นตัวเลข' : 'ใช้แป้นตัวเลขบนหน้าจอ';
+    if (persist) localStorage.setItem('login_numpad', show ? '1' : '0');
+  }
+
+  const numpadPref = localStorage.getItem('login_numpad');
+  setNumpadVisible(
+    numpadPref !== null ? numpadPref === '1' : window.matchMedia('(pointer: coarse)').matches,
+    false,
+  );
+
+  numpadToggle?.addEventListener('click', () => {
+    setNumpadVisible(numpad?.classList.contains('hidden'), true);
+  });
+
   document.getElementById('login-identifier')?.focus();
 
   // ── Mobile sidebar drawer ──

@@ -4,3 +4,4 @@ dist/
 .env.local
 .vercel/
 .pnpm-store/
+vite.config.js.timestamp-*.mjs

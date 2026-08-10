@@ -56,6 +56,10 @@ function loadCodeGs() {
 const sandbox = loadCodeGs();
 const guard = (incoming, existing, role) =>
   sandbox.guardLedgerChanges_(incoming, existing, { id: 'u1', role });
+const guardBudgetControl = (incomingBudget, incomingControl, existingBudget, existingControl, role) =>
+  sandbox.guardBudgetControlChanges_(incomingBudget, incomingControl, existingBudget, existingControl, { id: 'u1', role });
+const guardAccounting = (incoming, existing, role) =>
+  sandbox.guardAccountingChanges_(incoming, existing, { id: 'u1', role });
 
 /** `const` ใน Code.gs เป็น lexical binding ไม่ได้ขึ้นไปอยู่บน global object ของ sandbox */
 const readConst = (name) => vm.runInContext(name, sandbox);
@@ -67,7 +71,71 @@ const entry = (over = {}) => ({ id: 'e1', type: 'expense', status: 'requested', 
 
 test('Code.gs โหลดเข้า vm ได้ และมี guardLedgerChanges_', () => {
   assert.equal(typeof sandbox.guardLedgerChanges_, 'function');
+  assert.equal(typeof sandbox.guardBudgetControlChanges_, 'function');
+  assert.equal(typeof sandbox.guardAccountingChanges_, 'function');
+  assert.equal(typeof sandbox.validateAccountingPayload_, 'function');
   assert.deepEqual(plain(readConst('BUDGET_WORKFLOW')), ['requested', 'approved', 'obligated', 'billed', 'claiming', 'paid']);
+});
+
+test('Instructor แก้ Baseline หรือ Forecast ผ่าน API โดยตรงไม่ได้', () => {
+  assert.throws(
+    () => guardBudgetControl(120000, { baselineAmount: 120000 }, 100000, { baselineAmount: 100000 }, 'Instructor'),
+    /Forbidden/
+  );
+});
+
+test('Instructor บันทึกรายการโดยไม่เปลี่ยน Budget Control ได้', () => {
+  const control = { baselineAmount: 100000, forecastEtc: 40000 };
+  assert.doesNotThrow(() => guardBudgetControl(100000, control, 100000, control, 'Instructor'));
+});
+
+test('Admin และ Staff กำหนด Baseline / Forecast ได้', () => {
+  assert.doesNotThrow(() => guardBudgetControl(120000, { baselineAmount: 120000 }, 100000, {}, 'Admin'));
+  assert.doesNotThrow(() => guardBudgetControl(120000, { baselineAmount: 120000 }, 100000, {}, 'Staff'));
+});
+
+test('Instructor ดูบัญชีได้ แต่แก้สมุดรายวันผ่าน API โดยตรงไม่ได้', () => {
+  const before = { journals: [] };
+  const after = {
+    journals: [{
+      id: 'j1', date: '2026-08-01', description: 'ตั้งเจ้าหนี้',
+      lines: [{ account: '5102', debit: 100 }, { account: '2100', credit: 100 }],
+    }],
+  };
+  assert.throws(() => guardAccounting(after, before, 'Instructor'), /Forbidden/);
+  assert.doesNotThrow(() => guardAccounting(before, before, 'Instructor'));
+  assert.doesNotThrow(() => guardAccounting({ journals: [], reconciliations: [] }, {}, 'Instructor'));
+});
+
+test('Admin และ Staff บันทึกบัญชีที่สมดุลได้', () => {
+  const accounting = {
+    journals: [{
+      id: 'j1', date: '2026-08-01', description: 'ตั้งเจ้าหนี้',
+      lines: [{ account: '5102', debit: 100 }, { account: '2100', credit: 100 }],
+    }],
+  };
+  assert.doesNotThrow(() => guardAccounting(accounting, {}, 'Admin'));
+  assert.doesNotThrow(() => guardAccounting(accounting, {}, 'Staff'));
+});
+
+test('ฝั่ง GAS ปฏิเสธรายการบัญชีที่ไม่สมดุลหรือบรรทัดไม่ถูกต้อง', () => {
+  const unbalanced = { journals: [{ date: '2026-08-01', description: 'ผิด', lines: [{ account: '5102', debit: 100 }, { account: '2100', credit: 90 }] }] };
+  const bothSides = { journals: [{ date: '2026-08-01', description: 'ผิด', lines: [{ account: '5102', debit: 100, credit: 100 }, { account: '2100', credit: 100 }] }] };
+  assert.throws(() => guardAccounting(unbalanced, {}, 'Admin'), /ไม่สมดุล/);
+  assert.throws(() => guardAccounting(bothSides, {}, 'Admin'), /ไม่ถูกต้อง/);
+  const unknownAccount = { journals: [{ date: '2026-08-01', description: 'ผิด', lines: [{ account: '9999', debit: 100 }, { account: '2100', credit: 100 }] }] };
+  assert.throws(() => guardAccounting(unknownAccount, {}, 'Admin'), /ไม่พบรหัสบัญชี/);
+});
+
+test('ปิดงวดแล้วห้ามเพิ่ม แก้ ลบรายการเดิม และห้ามย้อนวันปิดงวด', () => {
+  const posted = { id: 'j1', date: '2026-07-31', description: 'รายการเดิม', lines: [{ account: '5102', debit: 100 }, { account: '2100', credit: 100 }] };
+  const existing = { closedThrough: '2026-07-31', journals: [posted] };
+  assert.throws(() => guardAccounting({ closedThrough: '', journals: [posted] }, existing, 'Admin'), /ย้อนวันที่/);
+  assert.throws(() => guardAccounting({ closedThrough: '2026-07-31', journals: [] }, existing, 'Admin'), /แก้หรือลบ/);
+  const added = { id: 'j2', date: '2026-07-15', description: 'ย้อนหลัง', lines: [{ account: '5102', debit: 50 }, { account: '2100', credit: 50 }] };
+  assert.throws(() => guardAccounting({ closedThrough: '2026-07-31', journals: [posted, added] }, existing, 'Staff'), /เพิ่มรายการ/);
+  const current = { id: 'j3', date: '2026-08-01', description: 'งวดใหม่', lines: [{ account: '5102', debit: 50 }, { account: '2100', credit: 50 }] };
+  assert.doesNotThrow(() => guardAccounting({ closedThrough: '2026-07-31', journals: [posted, current] }, existing, 'Staff'));
 });
 
 test('ลำดับ workflow ฝั่ง GAS ต้องตรงกับฝั่งหน้าเว็บ', async () => {

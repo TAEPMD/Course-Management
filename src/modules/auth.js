@@ -22,6 +22,7 @@ let lockTimer = null;
 let idleTimer = null;
 let idleWarningTimer = null;
 let pendingPinChange = null; // { identifier, currentPin }
+let pinRevealed = false;     // ปุ่ม "แสดง PIN" — เปลี่ยนจุด • เป็นตัวเลขในกล่อง
 
 // ── Login form helpers ────────────────────────────────────────────────────────
 
@@ -32,17 +33,39 @@ function setLoginError(message) {
   if (!box) return;
   box.textContent = message || '';
   box.classList.toggle('hidden', !message);
+  // บอกสถานะผิดพลาดที่ตัวช่องกรอกด้วย ไม่ใช่แค่ข้อความด้านล่าง
+  el('pin-field')?.classList.toggle('has-error', !!message);
+  el('login-pin-input')?.setAttribute('aria-invalid', message ? 'true' : 'false');
   if (message) el('pin-display')?.classList.add('pin-shake');
   setTimeout(() => el('pin-display')?.classList.remove('pin-shake'), 450);
 }
 
+/** ล้างข้อความผิดพลาดทันทีที่ผู้ใช้เริ่มแก้ไข — ไม่ให้ error ค้างจนสับสน */
+export function clearLoginError() {
+  if (!el('login-error')?.classList.contains('hidden')) setLoginError('');
+}
+
 function setLoginBusy(busy) {
   state.isLoggingIn = busy;
-  el('login-loader')?.classList.toggle('hidden', !busy);
-  el('login-numpad')?.classList.toggle('opacity-50', busy);
-  el('login-numpad')?.classList.toggle('pointer-events-none', busy);
+  // ต้องดูสถานะล็อกด้วย ไม่งั้น finally ของ processLogin จะปลดปุ่ม/แป้นคืน
+  // ทั้งที่เพิ่งโดนล็อก — ผู้ใช้จะเห็นปุ่มกดได้แต่กดแล้วไม่มีอะไรเกิดขึ้น
+  const locked = state.loginLockedUntil > Date.now();
+  el('login-form')?.classList.toggle('is-busy', busy);
+  setLoginInputsBlocked(busy || locked, locked);
   const submit = el('login-submit');
-  if (submit) submit.disabled = busy;
+  if (submit) {
+    submit.disabled = busy || locked;
+    submit.setAttribute('aria-busy', String(busy));
+  }
+}
+
+/** ปิด/เปิดการกรอกทั้งชุด (ใช้ทั้งตอนกำลังตรวจสอบ และตอนถูกล็อกชั่วคราว) */
+function setLoginInputsBlocked(blocked, locked = blocked) {
+  el('login-numpad')?.classList.toggle('opacity-50', blocked);
+  el('login-numpad')?.classList.toggle('pointer-events-none', blocked);
+  el('pin-field')?.classList.toggle('is-locked', locked);
+  const pin = el('login-pin-input');
+  if (pin) pin.disabled = locked; // ถูกล็อกแล้วต้องพิมพ์ไม่ได้จริง ๆ ไม่ใช่พิมพ์ได้แต่ไม่มีผล
 }
 
 function clearPin() {
@@ -65,11 +88,9 @@ export function renderNumpad() {
   keys.forEach(k => {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = k === 'C'
-      ? 'numpad-btn bg-red-50 text-red-500 hover:bg-red-100 font-black text-lg rounded-2xl h-14 transition-all active:scale-95'
-      : k === '<'
-      ? 'numpad-btn bg-slate-100 text-slate-600 hover:bg-slate-200 font-black text-xl rounded-2xl h-14 transition-all active:scale-95'
-      : 'numpad-btn bg-white hover:bg-blue-50 text-slate-800 font-bold text-xl rounded-2xl h-14 shadow-sm border border-gray-100 transition-all active:scale-95 hover:border-blue-300';
+    // สไตล์อยู่ใน style.css (บล็อก LOGIN UX PASS) ไม่ประกอบคลาส Tailwind ที่นี่
+    btn.className = 'numpad-btn'
+      + (k === 'C' ? ' numpad-btn-clear' : k === '<' ? ' numpad-btn-back' : '');
     if (k === '<') {
       btn.innerHTML = '<i class="fa-solid fa-delete-left" aria-hidden="true"></i><span class="sr-only">ลบตัวเลขล่าสุด</span>';
     } else if (k === 'C') {
@@ -85,6 +106,7 @@ export function renderNumpad() {
 
 export function handlePinInput(key) {
   if (state.isLoggingIn || state.loginLockedUntil > Date.now()) return;
+  clearLoginError();
   if (key === 'C') { state.pinInput = ''; }
   else if (key === '<') { state.pinInput = state.pinInput.slice(0, -1); }
   else if (state.pinInput.length < PIN_LENGTH) { state.pinInput += key; }
@@ -98,6 +120,20 @@ export function syncPinInputField() {
   if (input && input.value !== state.pinInput) input.value = state.pinInput;
 }
 
+/** ปุ่มแสดง/ซ่อน PIN — กล่องจะโชว์ตัวเลขจริงแทนจุดเมื่อเปิด */
+export function setPinReveal(show) {
+  pinRevealed = !!show;
+  const btn = el('login-pin-toggle');
+  if (btn) btn.setAttribute('aria-pressed', String(pinRevealed));
+  const icon = el('login-pin-toggle-icon');
+  if (icon) icon.className = pinRevealed ? 'fa-solid fa-eye-slash' : 'fa-solid fa-eye';
+  const text = el('login-pin-toggle-text');
+  if (text) text.textContent = pinRevealed ? 'ซ่อน PIN' : 'แสดง PIN';
+  updatePinDisplay();
+}
+
+export function isPinRevealed() { return pinRevealed; }
+
 export function updatePinDisplay() {
   const boxes = document.querySelectorAll('#pin-display .pin-box');
   boxes.forEach((box, i) => {
@@ -105,7 +141,9 @@ export function updatePinDisplay() {
     const isCurrent = i === state.pinInput.length;
     box.classList.toggle('filled', filled);
     box.classList.toggle('active-cursor', !filled && isCurrent);
-    box.innerHTML = filled ? '<span class="w-3 h-3 rounded-full bg-white inline-block"></span>' : '';
+    if (filled && pinRevealed) box.textContent = state.pinInput[i];
+    else if (filled) box.innerHTML = '<span class="pin-dot"></span>';
+    else box.textContent = '';
   });
   const status = el('pin-status');
   // ประกาศจำนวนหลักที่กรอกแล้วเท่านั้น — ไม่ประกาศตัวเลขจริง
@@ -118,7 +156,6 @@ function startLockCountdown(seconds) {
   state.loginLockedUntil = Date.now() + seconds * 1000;
   clearPin();
   const box = el('login-lock');
-  const numpad = el('login-numpad');
 
   const tick = () => {
     const remaining = Math.ceil((state.loginLockedUntil - Date.now()) / 1000);
@@ -127,9 +164,10 @@ function startLockCountdown(seconds) {
       lockTimer = null;
       state.loginLockedUntil = 0;
       box?.classList.add('hidden');
-      numpad?.classList.remove('opacity-50', 'pointer-events-none');
+      setLoginInputsBlocked(false);
       if (el('login-submit')) el('login-submit').disabled = false;
       setLoginError('');
+      el('login-pin-input')?.focus();
       return;
     }
     const mm = String(Math.floor(remaining / 60)).padStart(2, '0');
@@ -140,7 +178,7 @@ function startLockCountdown(seconds) {
     }
   };
 
-  numpad?.classList.add('opacity-50', 'pointer-events-none');
+  setLoginInputsBlocked(true);
   if (el('login-submit')) el('login-submit').disabled = true;
   if (lockTimer) clearInterval(lockTimer);
   tick();
@@ -354,7 +392,11 @@ export async function checkSession() {
 }
 
 export function isAuthExpiredError(error) {
-  return /Unauthorized|Invalid or expired API session|Please login/i.test(error?.message || String(error || ''));
+  // gas.js แปลข้อความเป็นไทยแล้วติด code ไว้ — ต้องเช็ค code ก่อน ไม่งั้น
+  // การจับ pattern อังกฤษจะพลาดทุกครั้งที่ error ผ่าน toApiError มา
+  if (error?.code === gas.AUTH_EXPIRED) return true;
+  return /Unauthorized|Invalid or expired API session|Please login|Session หมดอายุ/i
+    .test(error?.message || String(error || ''));
 }
 
 export function clearClientSession() {
@@ -380,8 +422,10 @@ export function clearClientSession() {
   const identifier = el('login-identifier');
   if (identifier) identifier.value = '';
   setLoginError('');
+  setLoginBusy(false);
   syncPinInputField();
-  updatePinDisplay();
+  setPinReveal(false); // ไม่ทิ้งสถานะ "แสดง PIN" ค้างไว้ให้ผู้ใช้คนถัดไป
+  identifier?.focus();
 }
 
 export async function logout({ reason } = {}) {

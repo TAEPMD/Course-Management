@@ -1,6 +1,9 @@
 import { defineConfig, loadEnv } from 'vite';
 import https from 'node:https';
 import http  from 'node:http';
+import tailwindcss from 'tailwindcss';
+import autoprefixer from 'autoprefixer';
+import tailwindConfig from './tailwind.config.js';
 import {
   buildGasPayload,
   csrfError,
@@ -162,6 +165,19 @@ export default defineConfig(({ mode }) => {
   Object.assign(process.env, loadEnv(mode, process.cwd(), ''));
   return {
     plugins: [gasProxyPlugin()],
+    // Keep the production CSS pipeline explicit. Some remote builders do not
+    // auto-discover postcss.config.js, which would ship literal @tailwind
+    // directives and remove every utility-driven layout from the application.
+    css: {
+      postcss: {
+        plugins: [
+          // Pass the config object directly so Linux builders do not need to
+          // resolve an ESM config file through Tailwind's path loader.
+          tailwindcss(tailwindConfig),
+          autoprefixer(),
+        ],
+      },
+    },
     build: {
       outDir: 'dist',
     },

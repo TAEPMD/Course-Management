@@ -243,6 +243,57 @@ export function getBudgetSummary(project, budgetValue) {
   return { budget, totalIncome, committedExpense, paidExpense, claimQueue, rejectedExpense, available, pct };
 }
 
+/**
+ * Earned Value / Forecast metrics for project budget governance.
+ * BAC = approved baseline, PV/EV use the latest forecast-review progress,
+ * AC = paid cost, ETC/EAC may be reviewed manually or estimated statistically.
+ */
+export function getBudgetPerformance(project, summaryValue) {
+  const summary = summaryValue || getBudgetSummary(project);
+  const control = project?.budgetControl && typeof project.budgetControl === 'object'
+    ? project.budgetControl
+    : {};
+  const toNonNegative = value => {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? number : 0;
+  };
+  const hasManualEtc = Object.prototype.hasOwnProperty.call(control, 'forecastEtc')
+    && Number.isFinite(Number(control.forecastEtc))
+    && Number(control.forecastEtc) >= 0;
+
+  const bac = toNonNegative(control.baselineAmount ?? summary.budget ?? project?.budget);
+  const actualProgress = clampPct(Number(project?.progress || 0));
+  const plannedProgress = clampPct(Number(control.plannedProgress ?? actualProgress));
+  const pv = bac * (plannedProgress / 100);
+  const ev = bac * (actualProgress / 100);
+  const ac = toNonNegative(summary.paidExpense);
+  const cpi = ac > 0 ? ev / ac : null;
+  const spi = pv > 0 ? ev / pv : null;
+  const committedUnpaid = Math.max(0, toNonNegative(summary.committedExpense) - ac);
+  const statisticalEtc = cpi && cpi > 0
+    ? Math.max(committedUnpaid, (bac - ev) / cpi, 0)
+    : Math.max(committedUnpaid, bac - ac, 0);
+  const etc = hasManualEtc ? toNonNegative(control.forecastEtc) : statisticalEtc;
+  const contingency = toNonNegative(control.contingency);
+  const eac = ac + etc + contingency;
+  const vac = bac - eac;
+  const remainingBudget = bac - ac;
+  const remainingWork = Math.max(0, bac - ev);
+  const tcpi = remainingBudget > 0 ? remainingWork / remainingBudget : null;
+  const variancePct = bac > 0 ? (vac / bac) * 100 : 0;
+  const tone = bac <= 0 || vac < 0 || (cpi !== null && cpi < 0.9)
+    ? 'risk'
+    : (variancePct < 5 || (spi !== null && spi < 0.95))
+      ? 'watch'
+      : 'good';
+
+  return {
+    bac, pv, ev, ac, cpi, spi, etc, contingency, eac, vac, tcpi,
+    actualProgress, plannedProgress, committedUnpaid, statisticalEtc,
+    variancePct, hasManualEtc, tone,
+  };
+}
+
 export function getBudgetAlerts(project, now = new Date()) {
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);

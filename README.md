@@ -37,6 +37,7 @@ npm run preview    # เปิดดู build จริงที่ localhost:41
 
 ดู UI โดยไม่ต้องล็อกอิน: `npm run dev` แล้วเปิด `preview-budget.html`,
 `preview-gantt.html`, `preview-login.html` (harness จะ seed ข้อมูลตัวอย่างให้เอง)
+— หน้า login ดูสถานะอื่นได้ด้วย hash: `#error` (กรอกผิด), `#lock` (ถูกล็อกชั่วคราว), `#busy` (กำลังตรวจสอบ)
 
 ตั้งค่า `.env` ตาม `.env.example` (ต้องมี `VITE_GAS_WEB_APP_URL` ชี้ไปยัง GAS Web App)
 
@@ -52,11 +53,21 @@ npx vercel deploy --prod --yes
 
 ฝั่ง backend แก้ `Code.gs` แล้ว deploy ผ่าน Google Apps Script — ดู [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 
+⚠ **กด Save ใน Apps Script ไม่ใช่การ deploy** — Web App ยังชี้ที่ version เดิมจนกว่าจะ
+Deploy → Manage deployments → ✏️ → Version: **New version** → Deploy
+ตรวจว่า deploy จริงหรือยังได้จาก DevTools console: `[backend] version: …` ต้องตรงกับ
+`BACKEND_VERSION` ที่หัวไฟล์ `Code.gs` (ค่านี้ส่งออกมาทาง `getPublicSettings`)
+**อัปเดต `BACKEND_VERSION` ทุกครั้งที่แก้ Code.gs**
+
 ## หมายเหตุเรื่อง CSS
 
 `src/style.css` สะสมธีมหลายรุ่นที่เขียนทับกันด้วย `!important` (ธีมฐาน → ธีม Apple-style → readability pass → FINAL PASS)
 กติกา: **ถ้าจะแก้สี/พื้นหลังของ sidebar หรือหน้า login ให้แก้ที่บล็อก FINAL PASS ท้ายไฟล์** แล้วตรวจผลด้วย
 `npm run build && npm run preview` + เปิดดูจริง อย่าแก้ชั้นกลางเพราะจะโดนชั้นท้ายทับ
+
+หน้า login ทั้งหน้าอยู่ที่บล็อก **LOGIN UX PASS** ท้ายไฟล์ (scope ด้วย `#view-login` ทุก rule)
+ถ้าเพิ่ม rule ที่ตั้ง `display` ให้อีลิเมนต์ในหน้านี้ ต้องเพิ่ม rule คู่กันสำหรับ `.hidden` ด้วยเสมอ
+เพราะ specificity ของ `#view-login .x` ชนะ `.hidden` ของ Tailwind (ไม่งั้นซ่อนอีลิเมนต์ไม่ได้)
 
 Tailwind ถูก **build ตอน compile** (ดู `tailwind.config.js` + `postcss.config.js`) ไม่ได้โหลดจาก
 `cdn.tailwindcss.com` แล้ว — ตัวนั้นส่ง JIT compiler มา compile ในเบราว์เซอร์ ทำให้หน้าเว็บช้า

@@ -61,7 +61,7 @@ export async function uploadLogo(file) {
         _applyLogo(url);
         Swal.fire({ icon: 'success', title: 'อัปโหลดโลโก้สำเร็จ', timer: 1500, showConfirmButton: false });
       } catch (err) {
-        Swal.fire({ icon: 'error', title: 'อัปโหลดโลโก้ไม่สำเร็จ', text: err.message });
+        gas.notifyApiError('อัปโหลดโลโก้ไม่สำเร็จ', err);
       }
       resolve();
     };
@@ -219,7 +219,11 @@ function applyBranding(settings) {
 /** โหลดเฉพาะชื่อระบบ/โลโก้สำหรับหน้า Login — ไม่ต้องมี session */
 export async function loadPublicBranding() {
   try {
-    applyBranding(await gas.getPublicSettings());
+    const settings = await gas.getPublicSettings();
+    applyBranding(settings);
+    // Apps Script deploy ด้วยมือ — บันทึกไว้ว่า backend ที่ตอบมาเป็นโค้ดรุ่นไหน
+    // เวลาเจอปัญหา session จะได้รู้ทันทีว่า deploy ไปแล้วจริงหรือยัง
+    gas.setBackendVersion(settings?.backendVersion);
   } catch (e) {
     console.warn('Branding could not be loaded:', e.message);
   }

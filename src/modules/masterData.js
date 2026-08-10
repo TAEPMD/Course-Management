@@ -201,7 +201,7 @@ export async function saveMasterDataToCloud() {
     await gas.saveSystemSetting('master_data', md);
     Swal.fire({ icon: 'success', title: 'บันทึกไปยัง Google Sheets แล้ว', toast: true, position: 'top-end', timer: 2000, showConfirmButton: false });
   } catch (e) {
-    Swal.fire({ icon: 'error', title: 'บันทึกไม่สำเร็จ', text: e.message });
+    gas.notifyApiError('บันทึกไม่สำเร็จ', e);
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up mr-2"></i>บันทึกไปยัง Google Sheets'; }
   }

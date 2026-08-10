@@ -6,6 +6,7 @@ import { hasPermission } from './permissions.js';
 import { clearClientSession, hideAllViews, isAuthExpiredError, setHeader, updateNavActive } from './auth.js';
 import { populateDropdown } from './masterData.js';
 import { renderBudgetLedger } from './budget.js';
+import { renderAccounting } from './accounting.js';
 import { renderFiscalCalendar, renderScheduleSessions } from './schedule.js';
 import { escapeHTML, escapeJsAttr, formatCurrency } from '../utils/format.js';
 import {
@@ -805,16 +806,20 @@ export async function loadProjects() {
   } catch (e) {
     state.projects = [];
     if (isAuthExpiredError(e)) {
-      Swal.fire({
-        icon: 'info',
-        title: 'Session หมดอายุ',
-        text: 'กรุณาเข้าสู่ระบบใหม่',
-        confirmButtonColor: '#1e3a8a'
-      });
-      clearClientSession();
+      // ถ้ามาจาก proxy (code = AUTH_EXPIRED) gas.js แจ้ง + เคลียร์ session ให้แล้ว
+      // แจ้งซ้ำจะกลายเป็นกล่องที่สองทับกล่องแรก
+      if (e?.code !== gas.AUTH_EXPIRED) {
+        Swal.fire({
+          icon: 'info',
+          title: 'Session หมดอายุ',
+          text: 'กรุณาเข้าสู่ระบบใหม่',
+          confirmButtonColor: '#1e3a8a'
+        });
+        clearClientSession();
+      }
       return;
     }
-    Swal.fire({ icon: 'error', title: 'โหลดข้อมูลล้มเหลว', text: e.message });
+    gas.notifyApiError('โหลดข้อมูลล้มเหลว', e);
     return;
   }
   Swal.close();
@@ -1274,6 +1279,7 @@ export function openProject(id) {
   renderDocsTable();
   renderFiscalCalendar();
   renderBudgetLedger();
+  renderAccounting(p);
   renderScheduleSessions();
   renderKanban(p);
 }
@@ -1336,7 +1342,7 @@ export async function saveProjectInfo() {
     renderDashboardStats();
     renderProjectTable();
   } catch (e) {
-    Swal.fire({ icon: 'error', title: 'บันทึกล้มเหลว', text: e.message });
+    gas.notifyApiError('บันทึกล้มเหลว', e);
   }
 }
 
@@ -1370,7 +1376,7 @@ export async function deleteProject(projectId = state.currentProject?.id) {
       showDashboard();
     }
   } catch (e) {
-    Swal.fire({ icon: 'error', title: 'ลบหลักสูตรไม่สำเร็จ', text: e.message });
+    gas.notifyApiError('ลบหลักสูตรไม่สำเร็จ', e);
   }
 }
 
@@ -1477,7 +1483,7 @@ export async function deleteDocument(index) {
       Swal.fire({ icon: 'success', title: 'ลบแล้ว', toast: true, position: 'top-end', timer: 1200, showConfirmButton: false });
       renderDocsTable();
     } catch (err) {
-      Swal.fire({ icon: 'error', title: 'ลบล้มเหลว', text: err.message });
+      gas.notifyApiError('ลบล้มเหลว', err);
     }
   }
   return false;
@@ -1725,17 +1731,36 @@ export function changeWeek(delta) {
 let _dragTaskId = null;
 let _lastDragEndAt = 0;
 let _kanbanView = 'board';
+let _kanbanGanttScale = 'auto';
+const KANBAN_SORT_OPTIONS = [
+  { id: 'manual', label: 'ลำดับที่จัดไว้' },
+  { id: 'risk', label: 'ความเสี่ยงก่อน' },
+  { id: 'priority', label: 'ความสำคัญสูงก่อน' },
+  { id: 'due', label: 'กำหนดส่งใกล้ก่อน' },
+  { id: 'progress', label: 'ความคืบหน้ามากก่อน' },
+  { id: 'updated', label: 'อัปเดตล่าสุด' },
+  { id: 'title', label: 'ชื่องาน ก–ฮ' },
+];
+const _kanbanColumnSort = {
+  todo: 'manual',
+  doing: 'manual',
+  review: 'manual',
+  done: 'manual',
+};
 const _kanbanFilters = {
   q: '',
+  status: 'all',
   category: 'all',
   priority: 'all',
   due: 'all',
+  risk: 'all',
 };
 
 const KANBAN_COLS = [
-  { id: 'todo',  label: 'รอดำเนินการ', icon: 'fa-inbox',         bg: 'bg-slate-50',   border: 'border-slate-200',  countBg: 'bg-slate-100 text-slate-600',   addColor: 'text-slate-400' },
-  { id: 'doing', label: 'กำลังดำเนินการ', icon: 'fa-spinner',        bg: 'bg-amber-50',   border: 'border-amber-200',  countBg: 'bg-amber-100 text-amber-700',   addColor: 'text-amber-400' },
-  { id: 'done',  label: 'เสร็จแล้ว',    icon: 'fa-circle-check',  bg: 'bg-emerald-50', border: 'border-emerald-200',countBg: 'bg-emerald-100 text-emerald-700', addColor: 'text-emerald-500' },
+  { id: 'todo',   label: 'แผนงาน',          shortLabel: 'Plan',    icon: 'fa-inbox',         wipLimit: null, bg: 'bg-slate-50',   border: 'border-slate-200',   countBg: 'bg-slate-100 text-slate-600',     addColor: 'text-slate-500' },
+  { id: 'doing',  label: 'กำลังดำเนินการ',  shortLabel: 'Execute', icon: 'fa-spinner',       wipLimit: 5,    bg: 'bg-blue-50',    border: 'border-blue-200',    countBg: 'bg-blue-100 text-blue-700',       addColor: 'text-blue-500' },
+  { id: 'review', label: 'ตรวจรับ / ทบทวน', shortLabel: 'Review',  icon: 'fa-clipboard-check', wipLimit: 3,  bg: 'bg-violet-50',  border: 'border-violet-200',  countBg: 'bg-violet-100 text-violet-700',   addColor: 'text-violet-500' },
+  { id: 'done',   label: 'เสร็จสมบูรณ์',     shortLabel: 'Done',    icon: 'fa-circle-check',   wipLimit: null, bg: 'bg-emerald-50', border: 'border-emerald-200', countBg: 'bg-emerald-100 text-emerald-700', addColor: 'text-emerald-500' },
 ];
 
 const PRIORITY_CFG = {
@@ -1767,6 +1792,76 @@ function _isKanbanTaskOverdue(task) {
   return days !== null && days < 0 && task.status !== 'done';
 }
 
+function _getKanbanDependency(task) {
+  if (!task?.dependsOn) return { task: null, missing: false, incomplete: false };
+  const dependency = state.currentProject?.tasks?.find(item => item.id === task.dependsOn) || null;
+  return {
+    task: dependency,
+    missing: !dependency,
+    incomplete: Boolean(dependency && dependency.status !== 'done'),
+  };
+}
+
+function _isKanbanTaskBlocked(task) {
+  if (!task || task.status === 'done') return false;
+  const dependency = _getKanbanDependency(task);
+  return Boolean(task.blocked || dependency.missing || dependency.incomplete);
+}
+
+function _getKanbanTaskProgress(task) {
+  if (task.status === 'done') return 100;
+  const subtasks = _normalizeSubtasks(task);
+  if (subtasks.length) return Math.round((subtasks.filter(item => item.done).length / subtasks.length) * 100);
+  if (task.status === 'review') return 80;
+  if (task.status === 'doing') return 35;
+  return 0;
+}
+
+function _sortKanbanColumnTasks(tasks, status) {
+  const sortBy = _kanbanColumnSort[status] || 'manual';
+  if (sortBy === 'manual') return tasks;
+
+  const priorityRank = { high: 0, medium: 1, low: 2 };
+  const dueValue = task => {
+    if (!task.dueDate) return Number.POSITIVE_INFINITY;
+    const value = new Date(task.dueDate).getTime();
+    return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
+  };
+  const updatedValue = task => {
+    const value = new Date(task.updatedAt || task.createdAt || 0).getTime();
+    return Number.isFinite(value) ? value : 0;
+  };
+  const riskRank = task => {
+    if (_isKanbanTaskBlocked(task)) return 0;
+    if (_isKanbanTaskOverdue(task)) return 1;
+    return 2;
+  };
+
+  return tasks
+    .map((task, index) => ({ task, index }))
+    .sort((a, b) => {
+      let result = 0;
+      if (sortBy === 'risk') {
+        result = riskRank(a.task) - riskRank(b.task)
+          || (priorityRank[a.task.priority || 'medium'] ?? 1) - (priorityRank[b.task.priority || 'medium'] ?? 1)
+          || dueValue(a.task) - dueValue(b.task);
+      } else if (sortBy === 'priority') {
+        result = (priorityRank[a.task.priority || 'medium'] ?? 1) - (priorityRank[b.task.priority || 'medium'] ?? 1)
+          || dueValue(a.task) - dueValue(b.task);
+      } else if (sortBy === 'due') {
+        result = dueValue(a.task) - dueValue(b.task);
+      } else if (sortBy === 'progress') {
+        result = _getKanbanTaskProgress(b.task) - _getKanbanTaskProgress(a.task);
+      } else if (sortBy === 'updated') {
+        result = updatedValue(b.task) - updatedValue(a.task);
+      } else if (sortBy === 'title') {
+        result = String(a.task.title || '').localeCompare(String(b.task.title || ''), 'th', { numeric: true, sensitivity: 'base' });
+      }
+      return result || a.index - b.index;
+    })
+    .map(item => item.task);
+}
+
 function _matchesKanbanFilters(task) {
   const query = _kanbanFilters.q.trim().toLowerCase();
   const searchable = [task.title, task.description, task.assignee]
@@ -1775,10 +1870,14 @@ function _matchesKanbanFilters(task) {
     .toLowerCase();
 
   if (query && !searchable.includes(query)) return false;
+  if (_kanbanFilters.status !== 'all' && (task.status || 'todo') !== _kanbanFilters.status) return false;
   if (_kanbanFilters.category !== 'all' && (task.category || 'academic') !== _kanbanFilters.category) return false;
   if (_kanbanFilters.priority !== 'all' && (task.priority || 'medium') !== _kanbanFilters.priority) return false;
   if (_kanbanFilters.due === 'overdue' && !_isKanbanTaskOverdue(task)) return false;
   if (_kanbanFilters.due === 'upcoming' && (_isKanbanTaskOverdue(task) || !task.dueDate)) return false;
+  if (_kanbanFilters.risk === 'blocked' && !_isKanbanTaskBlocked(task)) return false;
+  if (_kanbanFilters.risk === 'unowned' && (task.assignee || task.status === 'done')) return false;
+  if (_kanbanFilters.risk === 'unscheduled' && (task.dueDate || task.status === 'done')) return false;
 
   return true;
 }
@@ -1786,9 +1885,11 @@ function _matchesKanbanFilters(task) {
 function _hasActiveKanbanFilters() {
   return Boolean(
     _kanbanFilters.q.trim() ||
+    _kanbanFilters.status !== 'all' ||
     _kanbanFilters.category !== 'all' ||
     _kanbanFilters.priority !== 'all' ||
-    _kanbanFilters.due !== 'all'
+    _kanbanFilters.due !== 'all' ||
+    _kanbanFilters.risk !== 'all'
   );
 }
 
@@ -1809,17 +1910,29 @@ function _getKanbanAnalytics(tasks) {
   const total = tasks.length;
   const done = tasks.filter(t => t.status === 'done').length;
   const doing = tasks.filter(t => t.status === 'doing').length;
+  const review = tasks.filter(t => t.status === 'review').length;
   const todo = tasks.filter(t => t.status === 'todo').length;
   const active = total - done;
   const overdue = tasks.filter(_isKanbanTaskOverdue).length;
+  const blocked = tasks.filter(_isKanbanTaskBlocked).length;
   const dueSoon = tasks.filter(t => {
     const days = _getKanbanDueDays(t);
     return days !== null && days >= 0 && days <= 7 && t.status !== 'done';
   }).length;
   const highActive = tasks.filter(t => t.priority === 'high' && t.status !== 'done').length;
   const unscheduled = tasks.filter(t => !t.dueDate && t.status !== 'done').length;
+  const unowned = tasks.filter(t => !t.assignee && t.status !== 'done').length;
+  const readyForReview = tasks.filter(t => t.status === 'review' && !_isKanbanTaskBlocked(t)).length;
+  const wipBreaches = KANBAN_COLS.filter(col => col.wipLimit && tasks.filter(t => t.status === col.id).length > col.wipLimit);
   const progress = _pct(done, total);
-  const riskScore = overdue * 3 + highActive * 2 + dueSoon + Math.max(0, doing - 5);
+  const planQuality = _pct(tasks.filter(t => t.assignee && t.dueDate).length, total);
+  const riskScore = overdue * 3 + blocked * 3 + highActive * 2 + dueSoon + unowned + wipBreaches.length * 2;
+  const riskPenalty = total
+    ? Math.min(100, Math.round(((overdue * 24) + (blocked * 28) + (unowned * 8) + (unscheduled * 6) + (wipBreaches.length * 12)) / total))
+    : 0;
+  const deliveryConfidence = total
+    ? Math.max(0, Math.min(100, Math.round((progress * .35) + (planQuality * .25) + ((100 - riskPenalty) * .4))))
+    : 0;
   const statusLevel = !total
     ? 'empty'
     : riskScore >= 9
@@ -1852,8 +1965,12 @@ function _getKanbanAnalytics(tasks) {
 
   const recommendation = !total
     ? 'เริ่มจากเพิ่มงานสำคัญ 3-5 รายการเพื่อเห็นภาพความคืบหน้า'
-    : overdue
+    : blocked
+      ? `ปลด Blocker และ Dependency ที่ค้าง ${blocked} รายการก่อนรับงานใหม่เข้าสู่ WIP`
+      : overdue
       ? `ควรปิดหรือต่อรองกำหนดงานเกินกำหนด ${overdue} รายการก่อน`
+      : wipBreaches.length
+        ? `ลดงานระหว่างทำใน ${wipBreaches.map(col => col.label).join(', ')} ให้ไม่เกิน WIP limit`
       : highActive
         ? `โฟกัสงานสำคัญสูงที่ยังไม่ปิด ${highActive} รายการ`
         : dueSoon
@@ -1861,10 +1978,54 @@ function _getKanbanAnalytics(tasks) {
           : 'สถานะโดยรวมดี ใช้เวลาตรวจคอขวดในคอลัมน์กำลังดำเนินการ';
 
   return {
-    total, done, doing, todo, active, overdue, dueSoon, highActive,
-    unscheduled, progress, riskScore, statusLevel, categoryRows,
-    maxCategoryLoad, statusRows, recommendation,
+    total, done, doing, review, todo, active, overdue, blocked, dueSoon, highActive,
+    unscheduled, unowned, readyForReview, wipBreaches, progress, planQuality,
+    riskScore, riskPenalty, deliveryConfidence, statusLevel, categoryRows, maxCategoryLoad, statusRows, recommendation,
   };
+}
+
+function _getKanbanAlertItems(tasks) {
+  return tasks
+    .map(task => ({ task, blocked: _isKanbanTaskBlocked(task), overdue: _isKanbanTaskOverdue(task) }))
+    .filter(item => item.blocked || item.overdue)
+    .sort((a, b) => {
+      const rank = item => (item.blocked && item.overdue) ? 0 : item.blocked ? 1 : 2;
+      const dueRank = item => _getKanbanDueDays(item.task) ?? 999;
+      return rank(a) - rank(b) || dueRank(a) - dueRank(b);
+    });
+}
+
+function _renderKanbanAlertRow({ task, blocked, overdue }) {
+  const cfg = KANBAN_CATEGORY_CFG[task.category || 'academic'];
+  const dependency = _getKanbanDependency(task);
+  const reason = blocked
+    ? (task.blockerReason || (dependency.missing
+        ? 'Dependency ไม่พบ'
+        : dependency.incomplete
+          ? `รอ: ${dependency.task.title}`
+          : 'ติด Blocker'))
+    : '';
+  return `
+    <button type="button" class="kanban-alert-row" onclick="app.editKanbanTask('${escapeJsAttr(task.id)}')">
+      <span class="kanban-alert-icons">
+        ${blocked ? '<i class="fa-solid fa-ban" title="ติด Blocker"></i>' : ''}
+        ${overdue ? '<i class="fa-solid fa-clock-rotate-left" title="เกินกำหนด"></i>' : ''}
+      </span>
+      <span class="kanban-alert-body">
+        <strong>${escapeHTML(task.title || 'งานไม่มีชื่อ')}</strong>
+        <span class="kanban-alert-meta">
+          ${cfg ? `<em>${escapeHTML(cfg.label)}</em>` : ''}
+          <em class="${task.assignee ? '' : 'text-rose-500'}">${escapeHTML(task.assignee || 'ไม่มีเจ้าของ')}</em>
+        </span>
+        ${reason ? `<span class="kanban-alert-reason">${escapeHTML(reason)}</span>` : ''}
+      </span>
+      ${_kanbanDueChip(task)}
+    </button>`;
+}
+
+function _renderKanbanAlertList(items) {
+  if (!items.length) return `<div class="kanban-insight-empty">ไม่มีงานเกินกำหนดหรือติด Blocker ในตอนนี้</div>`;
+  return `<div class="kanban-alert-list">${items.map(_renderKanbanAlertRow).join('')}</div>`;
 }
 
 function _renderKanbanProgressBar(value, cls = '') {
@@ -1904,6 +2065,16 @@ function _renderKanbanInsights(tasks) {
           </div>
         </div>`).join('')
     : `<div class="kanban-insight-empty">ยังไม่มี workload ตามหมวดหมู่</div>`;
+  const action = data.blocked
+    ? { label: 'ดู Blocker', handler: "app.setKanbanFilter('risk','blocked')" }
+    : data.overdue
+      ? { label: 'ดูงานเกินกำหนด', handler: "app.setKanbanFilter('due','overdue')" }
+      : data.wipBreaches.length
+        ? { label: 'ดูงานระหว่างทำ', handler: "app.setKanbanFilter('status','doing')" }
+        : data.unowned
+          ? { label: 'ดูงานไม่มีเจ้าของ', handler: "app.setKanbanFilter('risk','unowned')" }
+          : { label: 'ดูงานที่เปิดอยู่', handler: "app.setKanbanFilter('status','doing')" };
+  const alertItems = _getKanbanAlertItems(tasks);
 
   return `
     <div class="kanban-insights">
@@ -1915,12 +2086,19 @@ function _renderKanbanInsights(tasks) {
             <strong>${statusText}</strong>
           </div>
         </div>
-        <div class="kanban-decision-score">
-          <span>${data.progress}%</span>
-          <small>ปิดงานแล้ว</small>
+        <div class="kanban-health-visual">
+          <div class="kanban-health-gauge" style="--health-score:${data.deliveryConfidence}">
+            <span>${data.deliveryConfidence}</span><small>/100</small>
+          </div>
+          <div class="kanban-health-copy">
+            <strong>Delivery confidence</strong>
+            <span>ส่งมอบ ${data.progress}% · แผนครบ ${data.planQuality}%</span>
+          </div>
         </div>
-        ${_renderKanbanProgressBar(data.progress, 'decision')}
-        <p class="kanban-recommendation">${data.recommendation}</p>
+        <div class="kanban-recommendation-row">
+          <p class="kanban-recommendation">${data.recommendation}</p>
+          <button type="button" onclick="${action.handler}">${action.label}<i class="fa-solid fa-arrow-right"></i></button>
+        </div>
       </section>
 
       <section class="kanban-chart-card">
@@ -1929,10 +2107,10 @@ function _renderKanbanInsights(tasks) {
           <span>${data.active} งานเปิด</span>
         </div>
         <div class="kanban-status-stack" aria-label="สัดส่วนสถานะงาน">
-          ${data.statusRows.map(row => `<span class="${row.id}" style="width:${_pct(row.total, data.total)}%" title="${row.label}: ${row.total}"></span>`).join('')}
+          ${data.statusRows.map(row => `<button type="button" class="${row.id}" style="width:${_pct(row.total, data.total)}%" title="กรอง ${row.label}: ${row.total}" onclick="app.setKanbanFilter('status','${row.id}')"></button>`).join('')}
         </div>
         <div class="kanban-status-legend">
-          ${data.statusRows.map(row => `<span><i class="${row.id}"></i>${row.label} <b>${row.total}</b></span>`).join('')}
+          ${data.statusRows.map(row => `<button type="button" onclick="app.setKanbanFilter('status','${row.id}')"><i class="${row.id}"></i><span>${row.label}</span><b>${row.total}</b></button>`).join('')}
         </div>
       </section>
 
@@ -1942,10 +2120,10 @@ function _renderKanbanInsights(tasks) {
           <span>คะแนน ${data.riskScore}</span>
         </div>
         <div class="kanban-risk-grid">
-          <div><strong>${data.overdue}</strong><span>เกินกำหนด</span></div>
-          <div><strong>${data.dueSoon}</strong><span>ครบใน 7 วัน</span></div>
-          <div><strong>${data.highActive}</strong><span>สำคัญสูง</span></div>
-          <div><strong>${data.unscheduled}</strong><span>ไม่มีกำหนด</span></div>
+          <button type="button" onclick="app.setKanbanFilter('risk','blocked')" class="${data.blocked ? 'is-danger' : ''}"><i class="fa-solid fa-ban"></i><strong>${data.blocked}</strong><span>ติด Blocker</span></button>
+          <button type="button" onclick="app.setKanbanFilter('due','overdue')" class="${data.overdue ? 'is-danger' : ''}"><i class="fa-solid fa-clock-rotate-left"></i><strong>${data.overdue}</strong><span>เกินกำหนด</span></button>
+          <button type="button" onclick="app.setKanbanFilter('status','review')"><i class="fa-solid fa-clipboard-check"></i><strong>${data.readyForReview}</strong><span>รอตรวจรับ</span></button>
+          <button type="button" onclick="app.setKanbanFilter('risk','unowned')"><i class="fa-solid fa-user-slash"></i><strong>${data.unowned}</strong><span>ไม่มีเจ้าของ</span></button>
         </div>
       </section>
 
@@ -1956,13 +2134,22 @@ function _renderKanbanInsights(tasks) {
         </div>
         <div class="kanban-load-list">${categoryRows}</div>
       </section>
+
+      <section class="kanban-chart-card kanban-alert-card">
+        <div class="kanban-chart-head">
+          <strong>งานเกินกำหนด / ติด Blocker</strong>
+          <span>${alertItems.length} รายการ</span>
+        </div>
+        ${_renderKanbanAlertList(alertItems)}
+      </section>
     </div>`;
 }
 
 function _renderKanbanToolbar(allTasks, visibleTasks) {
   const doneCount = allTasks.filter(t => t.status === 'done').length;
   const overdueCount = allTasks.filter(_isKanbanTaskOverdue).length;
-  const highCount = allTasks.filter(t => t.priority === 'high' && t.status !== 'done').length;
+  const blockedCount = allTasks.filter(_isKanbanTaskBlocked).length;
+  const doingCount = allTasks.filter(t => t.status === 'doing').length;
   const activeFilters = _hasActiveKanbanFilters();
 
   return `
@@ -1977,9 +2164,10 @@ function _renderKanbanToolbar(allTasks, visibleTasks) {
         </div>
         <div class="kanban-summary">
           <span><strong>${allTasks.length}</strong> งานทั้งหมด</span>
-          <span><strong>${doneCount}</strong> ปิดแล้ว</span>
+          <span><strong>${doneCount}</strong> ส่งมอบแล้ว</span>
+          <span class="${doingCount > 5 ? 'text-amber-700' : ''}"><strong>${doingCount}/5</strong> WIP</span>
+          <span class="${blockedCount ? 'text-rose-600' : ''}"><strong>${blockedCount}</strong> Blocker</span>
           <span class="${overdueCount ? 'text-rose-600' : ''}"><strong>${overdueCount}</strong> เกินกำหนด</span>
-          <span class="${highCount ? 'text-amber-700' : ''}"><strong>${highCount}</strong> เร่งด่วน</span>
         </div>
         <div class="kanban-view-switch" role="tablist" aria-label="เลือกมุมมอง">
           <button type="button" class="${_kanbanView === 'board' ? 'active' : ''}" onclick="app.setKanbanView('board')">
@@ -1997,6 +2185,10 @@ function _renderKanbanToolbar(allTasks, visibleTasks) {
                  placeholder="ค้นหางาน ผู้รับผิดชอบ หรือรายละเอียด"
                  oninput="app.setKanbanFilter('q', this.value)">
         </label>
+        <select class="kanban-filter-select" onchange="app.setKanbanFilter('status', this.value)" aria-label="กรองสถานะงาน">
+          ${_kanbanOption('all', 'ทุกสถานะ', _kanbanFilters.status)}
+          ${KANBAN_COLS.map(col => _kanbanOption(col.id, col.label, _kanbanFilters.status)).join('')}
+        </select>
         <select class="kanban-filter-select" onchange="app.setKanbanFilter('category', this.value)" aria-label="กรองหมวดหมู่">
           ${_kanbanOption('all', 'ทุกหมวดหมู่', _kanbanFilters.category)}
           ${Object.entries(KANBAN_CATEGORY_CFG).map(([id, cfg]) => _kanbanOption(id, cfg.label, _kanbanFilters.category)).join('')}
@@ -2009,6 +2201,12 @@ function _renderKanbanToolbar(allTasks, visibleTasks) {
           ${_kanbanOption('all', 'ทุกกำหนดส่ง', _kanbanFilters.due)}
           ${_kanbanOption('overdue', 'เกินกำหนด', _kanbanFilters.due)}
           ${_kanbanOption('upcoming', 'มีกำหนดส่ง', _kanbanFilters.due)}
+        </select>
+        <select class="kanban-filter-select" onchange="app.setKanbanFilter('risk', this.value)" aria-label="กรองความเสี่ยงของงาน">
+          ${_kanbanOption('all', 'ทุกความเสี่ยง', _kanbanFilters.risk)}
+          ${_kanbanOption('blocked', 'ติด Blocker / Dependency', _kanbanFilters.risk)}
+          ${_kanbanOption('unowned', 'ยังไม่มีผู้รับผิดชอบ', _kanbanFilters.risk)}
+          ${_kanbanOption('unscheduled', 'ยังไม่กำหนดส่ง', _kanbanFilters.risk)}
         </select>
         <button type="button" onclick="app.resetKanbanFilters()" class="kanban-reset-btn" ${activeFilters ? '' : 'disabled'}>
           <i class="fa-solid fa-rotate-left"></i>
@@ -2041,7 +2239,7 @@ function _placeKanbanTask(taskId, newStatus, beforeTaskId = null) {
 }
 
 async function _saveKanbanOrder(taskId, { beforeTaskId = null, reposition = false } = {}) {
-  _patchKanbanTaskCard(taskId, { beforeTaskId, reposition });
+  renderKanban(state.currentProject);
   renderDashboardStats();
   try { await gas.saveProject(state.currentProject); } catch {}
 }
@@ -2094,6 +2292,19 @@ function _kanbanDueChip(task) {
   </span>`;
 }
 
+function _kanbanDependencyChip(task) {
+  if (!task.dependsOn) return '';
+  const dependency = _getKanbanDependency(task);
+  const isReady = dependency.task?.status === 'done';
+  const label = dependency.missing
+    ? 'Dependency ไม่พบ'
+    : `${isReady ? 'พร้อมเริ่ม' : 'รอ'}: ${dependency.task.title}`;
+  return `<span class="kanban-dependency-chip ${isReady ? 'is-ready' : 'is-waiting'}"
+                title="งานก่อนหน้า: ${escapeHTML(dependency.task?.title || 'ไม่พบงาน')}">
+    <i class="fa-solid fa-link"></i>${escapeHTML(label)}
+  </span>`;
+}
+
 function _normalizeSubtasks(task) {
   if (!Array.isArray(task.subtasks)) return [];
   return task.subtasks
@@ -2135,7 +2346,9 @@ function _taskCard(task) {
   const pri = PRIORITY_CFG[task.priority] || PRIORITY_CFG.medium;
   const cat = KANBAN_CATEGORY_CFG[task.category] || KANBAN_CATEGORY_CFG.academic;
   const isOverdue = _isKanbanTaskOverdue(task);
-  const statusColorClass = isOverdue ? 'kanban-card-overdue' : `kanban-card-${task.status || 'todo'}`;
+  const isBlocked = _isKanbanTaskBlocked(task);
+  const progress = _getKanbanTaskProgress(task);
+  const statusColorClass = isBlocked ? 'kanban-card-blocked' : isOverdue ? 'kanban-card-overdue' : `kanban-card-${task.status || 'todo'}`;
   const colIndex = KANBAN_COLS.findIndex(c => c.id === (task.status || 'todo'));
   const prevCol = KANBAN_COLS[colIndex - 1];
   const nextCol = KANBAN_COLS[colIndex + 1];
@@ -2144,24 +2357,28 @@ function _taskCard(task) {
          onclick="app.onKanbanCardClick(event,'${escapeJsAttr(task.id)}')"
          ondragstart="app.onKanbanDragStart(event,'${escapeJsAttr(task.id)}')"
          ondragend="app.onKanbanDragEnd(event)">
-      <div class="flex items-start justify-between gap-2 mb-2">
-        <p class="kanban-card-title font-bold text-gray-800 text-sm leading-snug flex-1">${escapeHTML(task.title)}</p>
-        <div class="kanban-card-actions flex-shrink-0">
-          <button type="button" onclick="event.stopPropagation();app.duplicateKanbanTask('${escapeJsAttr(task.id)}')"
-                  class="kanban-icon-btn duplicate" title="ทำสำเนางาน" aria-label="ทำสำเนางาน">
-            <i class="fa-regular fa-copy"></i>
-          </button>
-          <button type="button" onclick="event.stopPropagation();app.editKanbanTask('${escapeJsAttr(task.id)}')"
-                  class="kanban-icon-btn edit" title="แก้ไขงาน" aria-label="แก้ไขงาน">
-            <i class="fa-solid fa-pen"></i>
-          </button>
-          <button type="button" onclick="event.preventDefault();event.stopPropagation();app.deleteKanbanTask('${escapeJsAttr(task.id)}')"
-                  class="kanban-icon-btn delete" title="ลบงาน" aria-label="ลบงาน">
-            <i class="fa-solid fa-xmark"></i>
-          </button>
-        </div>
+      <div class="kanban-card-head">
+        <p class="kanban-card-title">${escapeHTML(task.title)}</p>
+        <details class="kanban-card-menu" onclick="event.stopPropagation()">
+          <summary title="จัดการงาน" aria-label="เปิดเมนูจัดการงาน"><i class="fa-solid fa-ellipsis"></i></summary>
+          <div class="kanban-card-menu-popover">
+            <button type="button" onclick="app.editKanbanTask('${escapeJsAttr(task.id)}')">
+              <i class="fa-solid fa-pen"></i><span>แก้ไขงาน</span>
+            </button>
+            <button type="button" onclick="app.duplicateKanbanTask('${escapeJsAttr(task.id)}')">
+              <i class="fa-regular fa-copy"></i><span>ทำสำเนา</span>
+            </button>
+            <button type="button" class="is-delete" onclick="event.preventDefault();app.deleteKanbanTask('${escapeJsAttr(task.id)}')">
+              <i class="fa-regular fa-trash-can"></i><span>ลบงาน</span>
+            </button>
+          </div>
+        </details>
       </div>
-      ${task.description ? `<p class="text-xs text-gray-400 mb-3 leading-relaxed">${escapeHTML(task.description)}</p>` : ''}
+      ${isBlocked ? `<div class="kanban-blocker-alert"><i class="fa-solid fa-ban"></i><span>${escapeHTML(task.blockerReason || 'รอปลด Blocker หรือ Dependency ก่อนดำเนินงานต่อ')}</span></div>` : ''}
+      ${task.description ? `<p class="kanban-card-description">${escapeHTML(task.description)}</p>` : ''}
+      <div class="kanban-card-progress" aria-label="ความคืบหน้า ${progress}%">
+        <span style="width:${progress}%"></span><em>${progress}%</em>
+      </div>
       ${_renderKanbanSubtasks(task)}
       <div class="flex items-center flex-wrap gap-1.5 mt-2">
         <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${cat.cls}">
@@ -2170,18 +2387,22 @@ function _taskCard(task) {
         <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${pri.cls}">
           <span class="w-1.5 h-1.5 rounded-full ${pri.dot} inline-block"></span>${pri.label}
         </span>
-        ${task.assignee ? `<span class="inline-flex items-center gap-1 text-[10px] font-medium text-gray-400 bg-gray-50 px-2 py-0.5 rounded-lg"><i class="fa-solid fa-user text-[9px]"></i>${escapeHTML(task.assignee)}</span>` : ''}
+        ${task.assignee
+          ? `<span class="kanban-owner-chip"><i class="fa-solid fa-user"></i>${escapeHTML(task.assignee)}</span>`
+          : task.status !== 'done' ? `<span class="kanban-owner-chip is-missing"><i class="fa-solid fa-user-plus"></i>ยังไม่มีเจ้าของ</span>` : ''}
+        ${task.acceptanceCriteria ? `<span class="kanban-dod-chip" title="เกณฑ์ตรวจรับ: ${escapeHTML(task.acceptanceCriteria)}"><i class="fa-solid fa-clipboard-check"></i>มีเกณฑ์ตรวจรับ</span>` : ''}
         ${_kanbanDueChip(task)}
+        ${_kanbanDependencyChip(task)}
       </div>
       <div class="kanban-card-footer">
         ${prevCol
           ? `<button type="button" onclick="event.stopPropagation();app.moveKanbanTask('${escapeJsAttr(task.id)}','${escapeJsAttr(prevCol.id)}')" class="kanban-move-btn" title="ย้ายไป ${prevCol.label}">
-               <i class="fa-solid fa-chevron-left"></i><span>${prevCol.label}</span>
+               <i class="fa-solid fa-arrow-left"></i><span>ย้อนกลับ</span>
              </button>`
           : '<span></span>'}
         ${nextCol
           ? `<button type="button" onclick="event.stopPropagation();app.moveKanbanTask('${escapeJsAttr(task.id)}','${escapeJsAttr(nextCol.id)}')" class="kanban-move-btn next" title="ย้ายไป ${nextCol.label}">
-               <span>${nextCol.label}</span><i class="fa-solid fa-chevron-right"></i>
+               <span>ขั้นถัดไป</span><i class="fa-solid fa-arrow-right"></i>
              </button>`
           : '<span></span>'}
       </div>
@@ -2226,6 +2447,10 @@ export function removeKanbanSubtaskRow(button) {
 function _kanbanTaskForm(task) {
   const t = task || {};
   const subtasks = _normalizeSubtasks(t);
+  const dependencyOptions = (state.currentProject?.tasks || [])
+    .filter(item => item.id !== t.id)
+    .map(item => `<option value="${escapeHTML(item.id)}" ${t.dependsOn === item.id ? 'selected' : ''}>${escapeHTML(item.title)}</option>`)
+    .join('');
   return `
     <div class="space-y-3 text-left mt-2">
       <div>
@@ -2250,6 +2475,13 @@ function _kanbanTaskForm(task) {
       <div>
         <label class="block text-xs font-bold text-gray-400 uppercase mb-1">ผู้รับผิดชอบ</label>
         <input id="swk-assignee" class="swal2-input !text-sm" placeholder="ชื่อ-สกุล" value="${escapeHTML(t.assignee || '')}">
+      </div>
+      <div>
+        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">งานก่อนหน้า (Dependency)</label>
+        <select id="swk-depends" class="swal2-select !text-sm">
+          <option value="">ไม่มีงานก่อนหน้า</option>
+          ${dependencyOptions}
+        </select>
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div>
@@ -2283,6 +2515,18 @@ function _kanbanTaskForm(task) {
           ${Object.entries(KANBAN_CATEGORY_CFG).map(([id, cfg]) => `<option value="${id}" ${(t.category || 'academic') === id ? 'selected' : ''}>${cfg.label}</option>`).join('')}
         </select>
       </div>
+      <div>
+        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">เกณฑ์ตรวจรับ / Definition of Done</label>
+        <textarea id="swk-acceptance" class="swal2-textarea !text-sm !h-16" placeholder="ระบุผลลัพธ์หรือหลักฐานที่ใช้ยืนยันว่างานเสร็จสมบูรณ์">${escapeHTML(t.acceptanceCriteria || '')}</textarea>
+      </div>
+      <div class="swk-blocker-box ${t.blocked ? 'is-blocked' : ''}">
+        <label class="swk-blocker-toggle">
+          <input type="checkbox" id="swk-blocked" ${t.blocked ? 'checked' : ''}
+                 onchange="this.closest('.swk-blocker-box').classList.toggle('is-blocked', this.checked)">
+          <span><i class="fa-solid fa-ban"></i> งานติด Blocker</span>
+        </label>
+        <textarea id="swk-blocker-reason" class="swal2-textarea !text-sm !h-14" placeholder="ระบุสาเหตุ สิ่งที่รอ และผู้ที่ต้องตัดสินใจ">${escapeHTML(t.blockerReason || '')}</textarea>
+      </div>
     </div>`;
 }
 
@@ -2306,11 +2550,15 @@ function _readKanbanTaskForm() {
     title,
     description: document.getElementById('swk-desc')?.value.trim() || '',
     assignee:    document.getElementById('swk-assignee')?.value.trim() || '',
+    dependsOn:   document.getElementById('swk-depends')?.value || '',
     startDate,
     dueDate,
     priority:    document.getElementById('swk-priority')?.value || 'medium',
     status:      document.getElementById('swk-status')?.value || 'todo',
     category:    document.getElementById('swk-category')?.value || 'academic',
+    acceptanceCriteria: document.getElementById('swk-acceptance')?.value.trim() || '',
+    blocked:     Boolean(document.getElementById('swk-blocked')?.checked),
+    blockerReason: document.getElementById('swk-blocker-reason')?.value.trim() || '',
     subtasks,
   };
 }
@@ -2339,8 +2587,10 @@ function _ganttTaskRange(task) {
 }
 
 function _ganttBarClass(task) {
+  if (_isKanbanTaskBlocked(task)) return 'gantt-bar-blocked';
   if (_isKanbanTaskOverdue(task)) return 'gantt-bar-overdue';
   if (task.status === 'done') return 'gantt-bar-done';
+  if (task.status === 'review') return 'gantt-bar-review';
   if (task.status === 'doing') return 'gantt-bar-doing';
   return 'gantt-bar-todo';
 }
@@ -2388,7 +2638,12 @@ function _renderKanbanGantt(tasks) {
   const rangeStart = new Date(min.getTime() - 2 * _GANTT_DAY_MS);
   const rangeEnd = new Date(max.getTime() + 4 * _GANTT_DAY_MS);
   const days = Math.round((rangeEnd - rangeStart) / _GANTT_DAY_MS) + 1;
-  const dayW = days <= 35 ? 30 : days <= 70 ? 20 : days <= 140 ? 14 : 10;
+  const autoDayWidth = days <= 35 ? 30 : days <= 70 ? 20 : days <= 140 ? 14 : 10;
+  const dayW = _kanbanGanttScale === 'detail'
+    ? 30
+    : _kanbanGanttScale === 'overview'
+      ? 10
+      : autoDayWidth;
   const showDayNumbers = dayW >= 14;
   const trackW = days * dayW;
   const dayIndex = d => Math.round((d - rangeStart) / _GANTT_DAY_MS);
@@ -2497,10 +2752,16 @@ function _renderKanbanGantt(tasks) {
       <div class="gantt-legend">
         <span><i class="gantt-dot gantt-bar-todo"></i>รอดำเนินการ</span>
         <span><i class="gantt-dot gantt-bar-doing"></i>กำลังดำเนินการ</span>
+        <span><i class="gantt-dot gantt-bar-review"></i>ตรวจรับ</span>
         <span><i class="gantt-dot gantt-bar-done"></i>เสร็จแล้ว</span>
+        <span><i class="gantt-dot gantt-bar-blocked"></i>ติด Blocker</span>
         <span><i class="gantt-dot gantt-bar-overdue"></i>เกินกำหนด</span>
         <span><i class="gantt-dot gantt-dot-milestone"></i>Milestone (มีเฉพาะกำหนดเสร็จ)</span>
-        <span class="gantt-legend-hint"><i class="fa-regular fa-hand-pointer"></i> คลิกแท่งงานเพื่อแก้ไข</span>
+        <div class="gantt-scale-switch" role="group" aria-label="ระดับการขยาย Gantt">
+          <button type="button" class="${_kanbanGanttScale === 'overview' ? 'active' : ''}" onclick="app.setKanbanGanttScale('overview')">ภาพรวม</button>
+          <button type="button" class="${_kanbanGanttScale === 'auto' ? 'active' : ''}" onclick="app.setKanbanGanttScale('auto')">พอดี</button>
+          <button type="button" class="${_kanbanGanttScale === 'detail' ? 'active' : ''}" onclick="app.setKanbanGanttScale('detail')">รายวัน</button>
+        </div>
       </div>
       <div class="gantt-scroll">
         <div class="gantt-canvas" style="width:${240 + trackW}px">
@@ -2529,6 +2790,11 @@ export function setKanbanView(view) {
   renderKanban(state.currentProject);
 }
 
+export function setKanbanGanttScale(scale) {
+  _kanbanGanttScale = ['overview', 'detail'].includes(scale) ? scale : 'auto';
+  renderKanban(state.currentProject);
+}
+
 export function renderKanban(project) {
   const p = project || state.currentProject;
   if (!p) return;
@@ -2540,10 +2806,11 @@ export function renderKanban(project) {
   // viewport anchored so changing a task status does not jump the user upward.
   const pageScroller = document.getElementById('scroll-container');
   const pageScrollTop = pageScroller?.scrollTop ?? 0;
-  const boardScrollLeft = board.scrollLeft;
+  const columnsScrollLeft = board.querySelector('.kanban-columns')?.scrollLeft ?? 0;
   const restoreScrollPosition = () => {
     if (pageScroller) pageScroller.scrollTop = pageScrollTop;
-    board.scrollLeft = boardScrollLeft;
+    const columnsScroller = board.querySelector('.kanban-columns');
+    if (columnsScroller) columnsScroller.scrollLeft = columnsScrollLeft;
   };
   const finishRender = () => {
     restoreScrollPosition();
@@ -2558,35 +2825,52 @@ export function renderKanban(project) {
     return;
   }
 
-  board.innerHTML = _renderKanbanToolbar(p.tasks, visibleTasks) + KANBAN_COLS.map(col => {
-    const tasks = visibleTasks.filter(t => t.status === col.id);
+  const columnsHtml = KANBAN_COLS.map(col => {
+    const tasks = _sortKanbanColumnTasks(visibleTasks.filter(t => t.status === col.id), col.id);
     const totalInColumn = p.tasks.filter(t => t.status === col.id).length;
+    const isOverWip = Boolean(col.wipLimit && totalInColumn > col.wipLimit);
     const emptyText = _hasActiveKanbanFilters()
       ? 'ไม่มีงานตรงกับตัวกรอง'
       : 'ลากการ์ดมาวางที่นี่';
     return `
-      <div class="kanban-column ${col.bg} ${col.border}"
+      <div class="kanban-column kanban-column-${col.id} ${isOverWip ? 'is-over-wip' : ''} ${col.bg} ${col.border}"
            data-status="${col.id}"
            ondragover="app.onKanbanDragOver(event)"
            ondragleave="event.target === this && this.classList.remove('drag-over')"
            ondrop="app.onKanbanDrop(event,'${escapeJsAttr(col.id)}')">
         <div class="kanban-col-header">
-          <div class="flex items-center gap-2">
-            <i class="fa-solid ${col.icon} text-sm opacity-60"></i>
-            <span class="font-bold text-gray-700 text-sm">${col.label}</span>
-            <span class="kanban-count ${col.countBg}">${tasks.length}</span>
-            ${tasks.length !== totalInColumn ? `<span class="kanban-muted-count">${totalInColumn} ทั้งหมด</span>` : ''}
+          <div class="kanban-col-heading">
+            <span class="kanban-col-icon"><i class="fa-solid ${col.icon}"></i></span>
+            <div class="kanban-col-title">
+              <small>${col.shortLabel}</small>
+              <strong>${col.label}</strong>
+            </div>
+            <div class="kanban-col-metrics">
+              ${col.wipLimit
+                ? `<span class="kanban-wip-limit ${isOverWip ? 'is-over' : ''}" title="งานระหว่างทำ ${totalInColumn} จากขีดจำกัด ${col.wipLimit}">WIP ${totalInColumn}/${col.wipLimit}</span>`
+                : `<span class="kanban-count ${col.countBg}" title="จำนวนงาน">${tasks.length}</span>`}
+              ${tasks.length !== totalInColumn ? `<span class="kanban-muted-count">${totalInColumn} ทั้งหมด</span>` : ''}
+            </div>
           </div>
           <button onclick="app.addKanbanTask('${escapeJsAttr(col.id)}')"
                   class="kanban-add-btn ${col.addColor}" title="เพิ่มงาน">
             <i class="fa-solid fa-plus text-xs"></i>
           </button>
         </div>
+        <label class="kanban-col-sort">
+          <i class="fa-solid fa-arrow-down-wide-short" aria-hidden="true"></i>
+          <span>เรียง</span>
+          <select onchange="app.setKanbanColumnSort('${escapeJsAttr(col.id)}', this.value)" aria-label="เรียงงานใน ${escapeHTML(col.label)}">
+            ${KANBAN_SORT_OPTIONS.map(option => _kanbanOption(option.id, option.label, _kanbanColumnSort[col.id])).join('')}
+          </select>
+        </label>
         <div class="kanban-list space-y-2.5 min-h-[80px]">
           ${tasks.map(_taskCard).join('') || `<div class="kanban-empty"><i class="fa-regular fa-folder-open"></i><span>${emptyText}</span></div>`}
         </div>
       </div>`;
   }).join('');
+  board.innerHTML = _renderKanbanToolbar(p.tasks, visibleTasks)
+    + `<div class="kanban-columns" aria-label="กระดานงาน 4 ขั้นตอน">${columnsHtml}</div>`;
   finishRender();
 }
 
@@ -2599,6 +2883,14 @@ function _syncKanbanColumns() {
     const totalCount = state.currentProject?.tasks?.filter(task => task.status === status).length || 0;
     const count = column.querySelector('.kanban-count');
     if (count) count.textContent = String(visibleCount);
+    const columnConfig = KANBAN_COLS.find(col => col.id === status);
+    const isOverWip = Boolean(columnConfig?.wipLimit && totalCount > columnConfig.wipLimit);
+    column.classList.toggle('is-over-wip', isOverWip);
+    const wipBadge = column.querySelector('.kanban-wip-limit');
+    if (wipBadge && columnConfig?.wipLimit) {
+      wipBadge.textContent = `WIP ${totalCount}/${columnConfig.wipLimit}`;
+      wipBadge.classList.toggle('is-over', isOverWip);
+    }
     column.querySelector('.kanban-muted-count')?.remove();
     if (visibleCount !== totalCount) {
       count?.insertAdjacentHTML('afterend', `<span class="kanban-muted-count">${totalCount} ทั้งหมด</span>`);
@@ -2666,11 +2958,20 @@ export function setKanbanFilter(key, value) {
   }
 }
 
+export function setKanbanColumnSort(status, sortBy) {
+  if (!KANBAN_COLS.some(column => column.id === status)) return;
+  if (!KANBAN_SORT_OPTIONS.some(option => option.id === sortBy)) return;
+  _kanbanColumnSort[status] = sortBy;
+  renderKanban(state.currentProject);
+}
+
 export function resetKanbanFilters() {
   _kanbanFilters.q = '';
+  _kanbanFilters.status = 'all';
   _kanbanFilters.category = 'all';
   _kanbanFilters.priority = 'all';
   _kanbanFilters.due = 'all';
+  _kanbanFilters.risk = 'all';
   renderKanban(state.currentProject);
 }
 
@@ -2696,7 +2997,7 @@ export async function addKanbanTask(status) {
     ...value,
     createdAt: new Date().toISOString(),
   });
-  _patchKanbanTaskCard(state.currentProject.tasks.at(-1).id);
+  renderKanban(state.currentProject);
   renderDashboardStats();
   try { await gas.saveProject(state.currentProject); } catch {}
 }
@@ -2738,13 +3039,13 @@ export async function editKanbanTask(taskId) {
 
   if (!value) return;
   Object.assign(task, value, { updatedAt: new Date().toISOString() });
-  _patchKanbanTaskCard(task.id);
+  renderKanban(state.currentProject);
   renderDashboardStats();
   try {
     await gas.saveProject(state.currentProject);
     Swal.fire({ icon: 'success', title: 'บันทึกงานแล้ว', toast: true, position: 'top-end', timer: 1200, showConfirmButton: false, returnFocus: false, heightAuto: false, scrollbarPadding: false });
   } catch (e) {
-    Swal.fire({ icon: 'error', title: 'บันทึกงานล้มเหลว', text: e.message, heightAuto: false, scrollbarPadding: false });
+    gas.notifyApiError('บันทึกงานล้มเหลว', e, { heightAuto: false, scrollbarPadding: false });
   }
 }
 
@@ -2768,7 +3069,7 @@ export async function duplicateKanbanTask(taskId) {
   delete copy.updatedAt;
   tasks.splice(index + 1, 0, copy);
 
-  _patchKanbanTaskCard(copy.id, { afterTaskId: source.id });
+  renderKanban(state.currentProject);
   try {
     await gas.saveProject(state.currentProject);
     Swal.fire({
@@ -2785,7 +3086,7 @@ export async function duplicateKanbanTask(taskId) {
       scrollbarPadding: false,
     });
   } catch (e) {
-    Swal.fire({ icon: 'error', title: 'บันทึกงานล้มเหลว', text: e.message, returnFocus: false, heightAuto: false, scrollbarPadding: false });
+    gas.notifyApiError('บันทึกงานล้มเหลว', e, { returnFocus: false, heightAuto: false, scrollbarPadding: false });
   }
 }
 
@@ -2822,7 +3123,7 @@ export async function deleteKanbanTask(taskId) {
     board.focus({ preventScroll: true });
   }
   state.currentProject.tasks = state.currentProject.tasks?.filter(t => t.id !== taskId) || [];
-  _removeKanbanTaskCard(taskId);
+  renderKanban(state.currentProject);
   restoreWorkingPosition();
   requestAnimationFrame(restoreWorkingPosition);
   setTimeout(restoreWorkingPosition, 100);
@@ -2854,7 +3155,7 @@ export async function toggleKanbanSubtask(taskId, subtaskId) {
   } catch (e) {
     subtask.done = !subtask.done;
     _patchKanbanTaskCard(task.id);
-    Swal.fire({ icon: 'error', title: 'บันทึกงานย่อยไม่สำเร็จ', text: e.message });
+    gas.notifyApiError('บันทึกงานย่อยไม่สำเร็จ', e);
   }
 }
 
@@ -2893,6 +3194,9 @@ export async function onKanbanDrop(event, newStatus) {
   _dragTaskId = null;
   if (!taskId || !state.currentProject) return;
 
+  const task = state.currentProject.tasks?.find(item => item.id === taskId);
+  const isManualReorder = task?.status === newStatus && _kanbanColumnSort[newStatus] !== 'manual';
+  if (isManualReorder) _kanbanColumnSort[newStatus] = 'manual';
   const beforeTaskId = _getKanbanDropTarget(event.currentTarget, event.clientY);
   _clearKanbanDropMarkers();
   if (_placeKanbanTask(taskId, newStatus, beforeTaskId)) {

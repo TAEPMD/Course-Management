@@ -30,6 +30,7 @@ import {
   getBillEntries,
   getBudgetAlerts,
   getBudgetDecision,
+  getBudgetPerformance,
   getBudgetSummary,
   getCategoryBreakdown,
   getEntryStatus,
@@ -435,6 +436,167 @@ function currentBudgetValue() {
   return Math.max(0, Number(input.value) || 0);
 }
 
+function ensureBudgetControl(project) {
+  if (!project.budgetControl || typeof project.budgetControl !== 'object') project.budgetControl = {};
+  return project.budgetControl;
+}
+
+function budgetControlSnapshot(control) {
+  return {
+    baselineAmount: Number(control.baselineAmount || 0),
+    baselineCategories: { ...(control.baselineCategories || {}) },
+    managementReserve: Number(control.managementReserve || 0),
+    baselineNote: control.baselineNote || '',
+    baselineAt: control.baselineAt || '',
+    baselineBy: control.baselineBy || '',
+  };
+}
+
+export async function captureBudgetBaseline() {
+  const p = state.currentProject;
+  if (!p) return;
+  if (!canApproveBudget(currentRole())) {
+    denyToast('ไม่มีสิทธิ์กำหนด Baseline', 'กำหนดหรือปรับฐานงบประมาณได้เฉพาะ Admin และ Staff');
+    return;
+  }
+
+  const control = ensureBudgetControl(p);
+  const currentRows = new Map(getCategoryBreakdown(p).map(item => [item.label, item.amount]));
+  const categoryValues = control.baselineCategories || {};
+  const amount = Number(control.baselineAmount ?? currentBudgetValue() ?? p.budget ?? 0);
+  const isRebaseline = Boolean(control.baselineAt);
+  const { value } = await Swal.fire({
+    title: isRebaseline ? 'ปรับ Budget Baseline' : 'กำหนด Budget Baseline',
+    width: 760,
+    html: `
+      <div class="swal-budget-plan">
+        <p class="swal-budget-help">กำหนดวงเงินที่ได้รับอนุมัติและกรอบรายหมวด ระบบจะเก็บประวัติทุกครั้งที่ Rebaseline</p>
+        <label class="swal-budget-field"><span>Baseline at Completion (BAC)</span><input id="swal-budget-bac" type="number" min="0" step="0.01" value="${amount}"></label>
+        <div class="swal-budget-category-grid">
+          ${CATEGORIES.map((category, index) => `
+            <label class="swal-budget-field"><span>${escapeHTML(category)}</span>
+              <input class="swal-budget-category" data-category-index="${index}" type="number" min="0" step="0.01" value="${Number(categoryValues[category] ?? currentRows.get(category) ?? 0)}">
+            </label>`).join('')}
+        </div>
+        <div class="swal-budget-two">
+          <label class="swal-budget-field"><span>Management Reserve</span><input id="swal-budget-reserve" type="number" min="0" step="0.01" value="${Number(control.managementReserve || 0)}"></label>
+          <label class="swal-budget-field"><span>เหตุผล/หมายเหตุ Baseline</span><input id="swal-budget-note" type="text" value="${escapeHTML(control.baselineNote || '')}" placeholder="เช่น อนุมัติตามมติครั้งที่..."></label>
+        </div>
+        <div id="swal-budget-allocation" class="swal-budget-allocation"></div>
+      </div>`,
+    showCancelButton: true,
+    confirmButtonText: isRebaseline ? 'ยืนยัน Rebaseline' : 'บันทึก Baseline',
+    cancelButtonText: 'ยกเลิก',
+    focusConfirm: false,
+    didOpen: () => {
+      const update = () => {
+        const bac = Math.max(0, Number(document.getElementById('swal-budget-bac')?.value) || 0);
+        const allocated = [...document.querySelectorAll('.swal-budget-category')]
+          .reduce((sum, input) => sum + Math.max(0, Number(input.value) || 0), 0);
+        const reserve = Math.max(0, Number(document.getElementById('swal-budget-reserve')?.value) || 0);
+        const remaining = bac - allocated - reserve;
+        const status = document.getElementById('swal-budget-allocation');
+        if (status) {
+          status.className = `swal-budget-allocation ${remaining < 0 ? 'is-risk' : ''}`;
+          status.textContent = `จัดสรรแล้ว ${formatCurrency(allocated + reserve)} บาท • ยังไม่จัดสรร ${formatCurrency(remaining)} บาท`;
+        }
+      };
+      document.querySelectorAll('#swal-budget-bac, #swal-budget-reserve, .swal-budget-category').forEach(input => input.addEventListener('input', update));
+      update();
+    },
+    preConfirm: () => {
+      const bac = Math.max(0, Number(document.getElementById('swal-budget-bac')?.value) || 0);
+      const reserve = Math.max(0, Number(document.getElementById('swal-budget-reserve')?.value) || 0);
+      const baselineCategories = {};
+      document.querySelectorAll('.swal-budget-category').forEach(input => {
+        baselineCategories[CATEGORIES[Number(input.dataset.categoryIndex)]] = Math.max(0, Number(input.value) || 0);
+      });
+      const allocated = Object.values(baselineCategories).reduce((sum, item) => sum + item, 0) + reserve;
+      if (bac <= 0) return Swal.showValidationMessage('กรุณาระบุวงเงิน Baseline มากกว่า 0');
+      if (allocated > bac) return Swal.showValidationMessage(`ยอดจัดสรรเกิน Baseline ${formatCurrency(allocated - bac)} บาท`);
+      return {
+        bac, reserve, baselineCategories,
+        note: document.getElementById('swal-budget-note')?.value.trim() || '',
+      };
+    },
+  });
+  if (!value) return;
+
+  if (control.baselineAt) {
+    control.baselineHistory = [...(control.baselineHistory || []), budgetControlSnapshot(control)].slice(-20);
+  }
+  control.baselineAmount = value.bac;
+  control.baselineCategories = value.baselineCategories;
+  control.managementReserve = value.reserve;
+  control.baselineNote = value.note;
+  control.baselineAt = new Date().toISOString();
+  control.baselineBy = state.currentUserName || 'ไม่ระบุผู้ใช้';
+  p.budget = value.bac;
+  const input = document.getElementById('input-proj-budget');
+  if (input) input.value = String(value.bac);
+  markDirty();
+  await flushBudgetSave();
+  renderBudgetSummary();
+}
+
+export async function reviewBudgetForecast() {
+  const p = state.currentProject;
+  if (!p) return;
+  if (!canApproveBudget(currentRole())) {
+    denyToast('ไม่มีสิทธิ์ทบทวน Forecast', 'ทบทวนประมาณการได้เฉพาะ Admin และ Staff');
+    return;
+  }
+
+  const control = ensureBudgetControl(p);
+  const summary = getBudgetSummary(p, currentBudgetValue());
+  const performance = getBudgetPerformance(p, summary);
+  const defaultEtc = control.forecastEtc ?? Math.round(performance.statisticalEtc);
+  const { value } = await Swal.fire({
+    title: 'Forecast Review',
+    width: 680,
+    html: `
+      <div class="swal-budget-plan">
+        <p class="swal-budget-help">ทบทวนความก้าวหน้าตามแผนและต้นทุนที่ยังต้องใช้ เพื่อคำนวณ EAC และ VAC ล่าสุด</p>
+        <div class="swal-budget-two">
+          <label class="swal-budget-field"><span>Planned Progress ณ วันนี้ (%)</span><input id="swal-budget-planned" type="number" min="0" max="100" value="${Number(control.plannedProgress ?? p.progress ?? 0)}"></label>
+          <label class="swal-budget-field"><span>Estimate to Complete — ETC</span><input id="swal-budget-etc" type="number" min="0" step="0.01" value="${Number(defaultEtc || 0)}"></label>
+          <label class="swal-budget-field"><span>Contingency / Risk Reserve</span><input id="swal-budget-contingency" type="number" min="0" step="0.01" value="${Number(control.contingency || 0)}"></label>
+          <label class="swal-budget-field"><span>Forecast note</span><input id="swal-budget-forecast-note" type="text" value="${escapeHTML(control.forecastNote || '')}" placeholder="สมมติฐานหรือความเสี่ยงสำคัญ"></label>
+        </div>
+        <div class="swal-budget-preview">AC ปัจจุบัน ${formatCurrency(performance.ac)} บาท • ETC เชิงสถิติ ${formatCurrency(performance.statisticalEtc)} บาท</div>
+      </div>`,
+    showCancelButton: true,
+    confirmButtonText: 'บันทึก Forecast',
+    cancelButtonText: 'ยกเลิก',
+    focusConfirm: false,
+    preConfirm: () => ({
+      plannedProgress: Math.min(100, Math.max(0, Number(document.getElementById('swal-budget-planned')?.value) || 0)),
+      forecastEtc: Math.max(0, Number(document.getElementById('swal-budget-etc')?.value) || 0),
+      contingency: Math.max(0, Number(document.getElementById('swal-budget-contingency')?.value) || 0),
+      forecastNote: document.getElementById('swal-budget-forecast-note')?.value.trim() || '',
+    }),
+  });
+  if (!value) return;
+
+  if (control.reviewedAt) {
+    control.forecastHistory = [...(control.forecastHistory || []), {
+      plannedProgress: control.plannedProgress,
+      forecastEtc: control.forecastEtc,
+      contingency: control.contingency,
+      forecastNote: control.forecastNote,
+      reviewedAt: control.reviewedAt,
+      reviewedBy: control.reviewedBy,
+    }].slice(-20);
+  }
+  Object.assign(control, value, {
+    reviewedAt: new Date().toISOString(),
+    reviewedBy: state.currentUserName || 'ไม่ระบุผู้ใช้',
+  });
+  markDirty();
+  await flushBudgetSave();
+  renderBudgetSummary();
+}
+
 export function addBudgetEntry() {
   const p = state.currentProject;
   if (!p) return;
@@ -743,7 +905,7 @@ export async function saveBudgetToCloud() {
     Swal.fire({ icon: 'success', title: 'บันทึกงบประมาณแล้ว', toast: true, position: 'top-end', timer: 1800, showConfirmButton: false });
   } catch (e) {
     setSaveState('error');
-    Swal.fire({ icon: 'error', title: 'บันทึกล้มเหลว', text: e.message });
+    gas.notifyApiError('บันทึกล้มเหลว', e);
   }
 }
 
@@ -1134,6 +1296,33 @@ export function exportBudgetReport() {
   sheet.push(['คงเหลือหลังผูกพัน', summary.available, pct(summary.available)]);
   sheet.push(['รายการที่ไม่อนุมัติ (ไม่นับผูกพัน)', summary.rejectedExpense, '']);
 
+  // ── PM Budget Performance / Forecast ──
+  const performance = getBudgetPerformance(p, summary);
+  const control = p.budgetControl || {};
+  section('PM Budget Performance และ Forecast');
+  sheet.push(['ตัวชี้วัด', 'ค่า', 'คำอธิบาย']);
+  sheet.push(['BAC', performance.bac, 'Budget at Completion / Baseline ที่อนุมัติ']);
+  sheet.push(['Planned Progress', performance.plannedProgress + '%', 'ความก้าวหน้าตามแผน ณ วันที่ทบทวน']);
+  sheet.push(['Actual Progress', performance.actualProgress + '%', 'ความก้าวหน้าผลงานจริง']);
+  sheet.push(['PV', Math.round(performance.pv), 'Planned Value']);
+  sheet.push(['EV', Math.round(performance.ev), 'Earned Value']);
+  sheet.push(['AC', performance.ac, 'Actual Cost / จ่ายจริง']);
+  sheet.push(['CPI', performance.cpi === null ? '-' : performance.cpi.toFixed(2), 'Cost Performance Index']);
+  sheet.push(['SPI', performance.spi === null ? '-' : performance.spi.toFixed(2), 'Schedule Performance Index']);
+  sheet.push(['ETC', Math.round(performance.etc), performance.hasManualEtc ? 'Forecast ที่ทบทวนแล้ว' : 'ค่าประมาณเชิงสถิติ']);
+  sheet.push(['Contingency', performance.contingency, 'สำรองความเสี่ยง']);
+  sheet.push(['EAC', Math.round(performance.eac), 'Estimate at Completion']);
+  sheet.push(['VAC', Math.round(performance.vac), 'Variance at Completion']);
+  sheet.push(['ทบทวน Forecast ล่าสุด', control.reviewedAt ? new Date(control.reviewedAt).toLocaleString('th-TH') : '-', control.reviewedBy || '']);
+
+  const baselineCategories = control.baselineCategories || {};
+  if (Object.keys(baselineCategories).length) {
+    section('Budget Baseline ตามหมวด');
+    sheet.push(['หมวด', 'Baseline (บาท)']);
+    CATEGORIES.forEach(category => sheet.push([category, Number(baselineCategories[category] || 0)]));
+    sheet.push(['Management Reserve', Number(control.managementReserve || 0)]);
+  }
+
   // ── สรุปตามหมวดค่าใช้จ่าย ──
   section('สรุปตามหมวดค่าใช้จ่าย (เฉพาะรายจ่ายที่ยังมีผล)');
   sheet.push(['หมวด', 'จำนวนเงิน (บาท)', 'สัดส่วนของยอดผูกพัน']);
@@ -1372,9 +1561,95 @@ function renderBudgetVisualPanel(project, summary, alerts) {
     { label: 'คงเหลือ', value: summary.available, className: summary.available < 0 ? 'negative' : 'available' }
   ];
   const controlItems = getControlIndicators(decision, summary, alerts);
+  const budgetControl = project.budgetControl || {};
+  const performance = getBudgetPerformance(project, summary);
+  const canManage = canApproveBudget(currentRole());
+  const ratioLabel = value => value === null ? '—' : value.toFixed(2);
+  const reviewedLabel = budgetControl.reviewedAt
+    ? new Date(budgetControl.reviewedAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })
+    : 'ยังไม่ทบทวน';
+  const pmActions = [];
+  if (!budgetControl.baselineAt) pmActions.push({ tone: 'risk', icon: 'fa-thumbtack', text: 'กำหนดและอนุมัติ Budget Baseline ก่อนเริ่มควบคุมงบ' });
+  if (!budgetControl.reviewedAt) pmActions.push({ tone: 'watch', icon: 'fa-chart-line', text: 'ทบทวน Forecast เพื่อยืนยัน ETC และความก้าวหน้าตามแผน' });
+  if (performance.vac < 0) pmActions.push({ tone: 'risk', icon: 'fa-triangle-exclamation', text: `EAC มีแนวโน้มเกิน Baseline ${formatCurrency(Math.abs(performance.vac))} บาท` });
+  if (performance.cpi !== null && performance.cpi < 0.9) pmActions.push({ tone: 'risk', icon: 'fa-coins', text: `CPI ${ratioLabel(performance.cpi)} สะท้อนประสิทธิภาพต้นทุนต่ำกว่าเกณฑ์` });
+  if (performance.spi !== null && performance.spi < 0.9) pmActions.push({ tone: 'watch', icon: 'fa-calendar-xmark', text: `SPI ${ratioLabel(performance.spi)} งานจริงช้ากว่าแผนที่ทบทวนไว้` });
+  if (alerts.length) pmActions.push({ tone: 'watch', icon: 'fa-bell', text: `ปิดรายการค้างติดตาม ${alerts.length} รายการก่อนเพิ่มภาระผูกพันใหม่` });
+  if (!pmActions.length) pmActions.push({ tone: 'good', icon: 'fa-circle-check', text: 'งบประมาณและ Forecast อยู่ในกรอบ สามารถดำเนินงานตามแผนได้' });
+
+  const kpis = [
+    { code: 'BAC', label: 'งบฐานอนุมัติ', value: formatCurrency(performance.bac), suffix: 'บาท', tone: budgetControl.baselineAt ? 'good' : 'watch' },
+    { code: 'PV', label: `มูลค่าตามแผน ${performance.plannedProgress}%`, value: formatCurrency(performance.pv), suffix: 'บาท', tone: 'info' },
+    { code: 'EV', label: `มูลค่าผลงานจริง ${performance.actualProgress}%`, value: formatCurrency(performance.ev), suffix: 'บาท', tone: 'info' },
+    { code: 'AC', label: 'ต้นทุนจ่ายจริง', value: formatCurrency(performance.ac), suffix: 'บาท', tone: 'info' },
+    { code: 'CPI', label: 'ประสิทธิภาพต้นทุน', value: ratioLabel(performance.cpi), suffix: performance.cpi === null ? 'ยังไม่มี AC' : performance.cpi >= 1 ? 'ดี' : 'ต่ำกว่าแผน', tone: performance.cpi === null ? 'info' : performance.cpi >= 1 ? 'good' : performance.cpi >= .9 ? 'watch' : 'risk' },
+    { code: 'SPI', label: 'ประสิทธิภาพเวลา', value: ratioLabel(performance.spi), suffix: performance.spi === null ? 'รอแผน' : performance.spi >= 1 ? 'ตาม/เร็วกว่าแผน' : 'ช้ากว่าแผน', tone: performance.spi === null ? 'info' : performance.spi >= 1 ? 'good' : performance.spi >= .9 ? 'watch' : 'risk' },
+    { code: 'EAC', label: 'คาดการณ์เมื่อเสร็จ', value: formatCurrency(performance.eac), suffix: 'บาท', tone: performance.eac <= performance.bac ? 'good' : 'risk' },
+    { code: 'VAC', label: 'ส่วนต่างเมื่อเสร็จ', value: formatCurrency(performance.vac), suffix: 'บาท', tone: performance.vac >= 0 ? 'good' : 'risk' },
+  ];
+  const forecastTotal = Math.max(performance.eac, 1);
+  const acWidth = clampPct((performance.ac / forecastTotal) * 100);
+  const etcWidth = clampPct((performance.etc / forecastTotal) * 100);
+  const contingencyWidth = clampPct((performance.contingency / forecastTotal) * 100);
 
   panel.innerHTML = `
     <section class="budget-intel-panel">
+      <div class="budget-pm-center">
+        <div class="budget-pm-head">
+          <div>
+            <span class="budget-pm-eyebrow">PROJECT COST MANAGEMENT</span>
+            <h4>Budget Control Center</h4>
+            <p>ควบคุม Baseline ติดตาม Earned Value และคาดการณ์ต้นทุนจนจบโครงการ</p>
+          </div>
+          <div class="budget-pm-actions">
+            <span class="budget-pm-status ${budgetControl.baselineAt ? 'is-locked' : 'is-draft'}"><i class="fa-solid ${budgetControl.baselineAt ? 'fa-lock' : 'fa-lock-open'}"></i>${budgetControl.baselineAt ? 'Baseline approved' : 'ยังไม่มี Baseline'}</span>
+            <span class="budget-pm-status"><i class="fa-regular fa-clock"></i>Forecast: ${reviewedLabel}</span>
+            <button type="button" onclick="app.captureBudgetBaseline()" ${canManage ? '' : 'disabled'}><i class="fa-solid fa-thumbtack"></i>${budgetControl.baselineAt ? 'Rebaseline' : 'กำหนด Baseline'}</button>
+            <button type="button" class="primary" onclick="app.reviewBudgetForecast()" ${canManage ? '' : 'disabled'}><i class="fa-solid fa-chart-line"></i>ทบทวน Forecast</button>
+          </div>
+        </div>
+
+        <div class="budget-evm-grid">
+          ${kpis.map(item => `
+            <article class="budget-evm-card ${item.tone}">
+              <span>${item.code}</span>
+              <p>${item.label}</p>
+              <strong>${item.value}</strong>
+              <small>${item.suffix}</small>
+            </article>`).join('')}
+        </div>
+
+        <div class="budget-forecast-row">
+          <div class="budget-forecast-card">
+            <div class="budget-card-head">
+              <span><i class="fa-solid fa-road"></i></span>
+              <div><strong>Estimate at Completion</strong><small>${performance.hasManualEtc ? 'Forecast ที่ผ่านการทบทวน' : 'Forecast เชิงสถิติ — ควรทบทวนและยืนยัน'}</small></div>
+            </div>
+            <div class="budget-forecast-stack" aria-label="องค์ประกอบ EAC">
+              <i class="actual" style="width:${acWidth}%" title="AC ${formatCurrency(performance.ac)}"></i>
+              <i class="remaining" style="width:${etcWidth}%" title="ETC ${formatCurrency(performance.etc)}"></i>
+              <i class="reserve" style="width:${contingencyWidth}%" title="Contingency ${formatCurrency(performance.contingency)}"></i>
+            </div>
+            <div class="budget-forecast-legend">
+              <span><i class="actual"></i>AC <b>${formatCurrency(performance.ac)}</b></span>
+              <span><i class="remaining"></i>ETC <b>${formatCurrency(performance.etc)}</b></span>
+              <span><i class="reserve"></i>Reserve <b>${formatCurrency(performance.contingency)}</b></span>
+              <span class="total">EAC <b>${formatCurrency(performance.eac)}</b></span>
+            </div>
+            ${budgetControl.forecastNote ? `<p class="budget-forecast-note"><i class="fa-regular fa-note-sticky"></i>${escapeHTML(budgetControl.forecastNote)}</p>` : ''}
+          </div>
+          <div class="budget-next-actions">
+            <div class="budget-card-head">
+              <span><i class="fa-solid fa-list-check"></i></span>
+              <div><strong>Management Actions</strong><small>ประเด็นที่ต้องตัดสินใจหรือดำเนินการต่อ</small></div>
+            </div>
+            <div class="budget-action-list">
+              ${pmActions.slice(0, 4).map(item => `<p class="${item.tone}"><i class="fa-solid ${item.icon}"></i><span>${item.text}</span></p>`).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="budget-intel-hero">
         <div class="budget-intel-copy">
           <h4>Budget Intelligence</h4>

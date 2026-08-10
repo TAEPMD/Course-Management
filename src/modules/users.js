@@ -23,7 +23,7 @@ export async function loadUsers() {
     state.users = await gas.getUsers() || [];
   } catch (e) {
     state.users = [];
-    Swal.fire({ icon: 'error', title: 'โหลด Users ล้มเหลว', text: e.message });
+    gas.notifyApiError('โหลด Users ล้มเหลว', e);
     return;
   }
   Swal.close();
@@ -158,7 +158,7 @@ export async function saveUser() {
     await loadUsers();
     Swal.fire({ icon: 'success', title: 'บันทึกแล้ว', toast: true, position: 'top-end', timer: 1500, showConfirmButton: false });
   } catch (e) {
-    Swal.fire({ icon: 'error', title: 'บันทึกล้มเหลว', text: e.message });
+    gas.notifyApiError('บันทึกล้มเหลว', e);
   }
 }
 
@@ -175,6 +175,6 @@ export async function deleteUser(id) {
     await loadUsers();
     Swal.fire({ icon: 'success', title: 'ลบแล้ว', toast: true, position: 'top-end', timer: 1200, showConfirmButton: false });
   } catch (e) {
-    Swal.fire({ icon: 'error', title: 'ลบล้มเหลว', text: e.message });
+    gas.notifyApiError('ลบล้มเหลว', e);
   }
 }

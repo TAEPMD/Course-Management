@@ -89,6 +89,17 @@ async function toApiError(message) {
     return new Error('กรุณาตั้งรหัส PIN ใหม่ก่อนใช้งาน');
   }
   if (/Unauthorized|Invalid or expired API session|Please login/i.test(message)) {
+    // สองกรณีนี้ข้อความหน้าเว็บเหมือนกันแต่แก้คนละทาง — ต้องแยกให้ออก
+    //   no_cookie      : proxy ปฏิเสธเพราะคำขอไม่มี cookie session ติดมาเลย
+    //   server_session : cookie มา แต่ GAS ไม่รู้จัก token นี้แล้ว
+    const noCookie = /Please login/i.test(message);
+    const reason = noCookie ? 'no_cookie' : 'server_session';
+    const hint = (noCookie
+      ? 'เบราว์เซอร์ไม่ได้แนบ cookie ของ session มากับคำขอ — ตรวจว่าเปิดผ่านโดเมนเดิม และไม่ได้บล็อกคุกกี้ไว้'
+      : 'เซิร์ฟเวอร์ไม่พบ session นี้แล้ว — ไม่ได้ใช้งานเกิน 30 นาที ครบ 8 ชั่วโมง หรือ session ถูกล้างตอน deploy Apps Script ใหม่')
+      + (backendVersion ? ` · backend ${backendVersion}` : ' · backend ไม่ระบุเวอร์ชัน (Code.gs ที่ deploy อยู่ยังเป็นรุ่นเก่า)');
+    console.warn(`[auth] session rejected (${reason}) · backend:`, backendVersion || 'unknown', '·', message);
+
     try {
       const { clearClientSession } = await import('./modules/auth.js');
       clearClientSession();
@@ -98,12 +109,46 @@ async function toApiError(message) {
         icon: 'info',
         title: 'Session หมดอายุ',
         text: 'กรุณาเข้าสู่ระบบใหม่ด้วย PIN',
+        footer: hint,
         confirmButtonColor: '#1e3a8a',
       });
     }
-    return new Error('Session หมดอายุ กรุณาเข้าสู่ระบบใหม่');
+    // ติด code ไว้ให้ตัวเรียกรู้ว่า "จัดการ + แจ้งผู้ใช้ไปแล้ว" — ห้ามดูจากข้อความ
+    // เพราะข้อความถูกแปลเป็นไทยตรงนี้ ตัวจับ pattern ภาษาอังกฤษปลายทางจะพลาด
+    // แล้วไปโผล่เป็นกล่องแดง "โหลดข้อมูลล้มเหลว" ทับกล่องนี้อีกที
+    const expired = new Error('Session หมดอายุ กรุณาเข้าสู่ระบบใหม่');
+    expired.code = AUTH_EXPIRED;
+    expired.reason = reason;
+    return expired;
   }
   return new Error(message);
+}
+
+/** error ที่ผ่าน toApiError แล้วและแจ้งผู้ใช้ไปแล้ว — ปลายทางไม่ต้องแจ้งซ้ำ */
+export const AUTH_EXPIRED = 'AUTH_EXPIRED';
+
+/**
+ * เวอร์ชันของ Code.gs ที่ backend ตอบกลับมา (ตั้งค่าตอนโหลด branding)
+ * Apps Script deploy ด้วยมือและมักลืมสร้าง version ใหม่ — ค่านี้บอกได้ทันที
+ * ว่ากำลังคุยกับโค้ดรุ่นไหน โดยไม่ต้องเดา
+ */
+let backendVersion = '';
+
+export function setBackendVersion(version) {
+  backendVersion = String(version || '');
+  console.info('[backend] version:', backendVersion || 'ไม่ระบุ (Code.gs รุ่นเก่ากว่าที่รายงานเวอร์ชัน)');
+}
+
+export function getBackendVersion() { return backendVersion; }
+
+/**
+ * แจ้ง error จาก API ให้ผู้ใช้ — เงียบไว้ถ้าเป็นกรณี session หมดอายุ
+ * เพราะ toApiError แจ้งและพากลับหน้า login ไปแล้ว
+ */
+export function notifyApiError(title, error, options = {}) {
+  if (error?.code === AUTH_EXPIRED) return;
+  if (typeof Swal === 'undefined') return;
+  Swal.fire({ icon: 'error', title, text: error?.message || String(error || ''), ...options });
 }
 
 async function tryProxy(action, ...args) {

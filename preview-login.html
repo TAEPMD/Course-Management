@@ -10,6 +10,7 @@
 <div id="app-root"></div>
 <script>
 // ดึงเฉพาะบล็อก view-login จาก index.html จริง มาแสดงพร้อม state ต่าง ๆ
+// #error = กรอกผิด, #lock = ถูกล็อกชั่วคราว, #busy = กำลังตรวจสอบ
 fetch('./index.html').then(r => r.text()).then(html => {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const login = doc.getElementById('view-login');
@@ -18,34 +19,42 @@ fetch('./index.html').then(r => r.text()).then(html => {
 
   const keys = ['1','2','3','4','5','6','7','8','9','C','0','<'];
   const pad = document.getElementById('login-numpad');
+  pad.classList.remove('hidden');
   keys.forEach(k => {
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = k === 'C'
-      ? 'numpad-btn bg-red-50 text-red-500 font-black text-lg rounded-2xl h-14'
-      : k === '<'
-      ? 'numpad-btn bg-slate-100 text-slate-600 font-black text-xl rounded-2xl h-14'
-      : 'numpad-btn bg-white text-slate-800 font-bold text-xl rounded-2xl h-14 shadow-sm border border-gray-100';
+    b.className = 'numpad-btn' + (k === 'C' ? ' numpad-btn-clear' : k === '<' ? ' numpad-btn-back' : '');
     b.innerHTML = k === '<' ? '<i class="fa-solid fa-delete-left"></i>' : k;
     pad.appendChild(b);
   });
 
   const boxes = document.querySelectorAll('#pin-display .pin-box');
   const mode = location.hash;
-  if (mode === '#error' || mode === '#lock') {
-    boxes.forEach((b, i) => { if (i < 3) { b.classList.add('filled'); b.innerHTML = '<span class="w-3 h-3 rounded-full bg-white inline-block"></span>'; } });
+  if (mode === '#error' || mode === '#lock' || mode === '#busy') {
+    boxes.forEach((b, i) => {
+      if (i < 3) { b.classList.add('filled'); b.innerHTML = '<span class="pin-dot"></span>'; }
+    });
+    boxes[3]?.classList.add('active-cursor');
     document.getElementById('login-identifier').value = 'somchai';
   }
   if (mode === '#error') {
     const err = document.getElementById('login-error');
     err.textContent = 'ชื่อผู้ใช้หรือ PIN ไม่ถูกต้อง';
     err.classList.remove('hidden');
+    document.getElementById('pin-field').classList.add('has-error');
   }
   if (mode === '#lock') {
     const lock = document.getElementById('login-lock');
     lock.innerHTML = '<i class="fa-solid fa-lock"></i> ป้อนรหัสผิดหลายครั้ง — ลองใหม่ได้ในอีก <strong>04:37</strong>';
     lock.classList.remove('hidden');
-    pad.classList.add('opacity-50');
+    pad.classList.add('opacity-50', 'pointer-events-none');
+    document.getElementById('pin-field').classList.add('is-locked');
+    document.getElementById('login-pin-input').disabled = true;
+    document.getElementById('login-submit').disabled = true;
+  }
+  if (mode === '#busy') {
+    document.getElementById('login-form').classList.add('is-busy');
+    document.getElementById('login-submit').disabled = true;
   }
 });
 </script>
