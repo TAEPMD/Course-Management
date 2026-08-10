@@ -2005,21 +2005,24 @@ function _renderKanbanAlertRow({ task, blocked, overdue }) {
           ? `รอ: ${dependency.task.title}`
           : 'ติด Blocker'))
     : '';
+  const severityCls = blocked ? 'is-blocked' : 'is-overdue';
+  const badgeIcon = blocked ? 'fa-ban' : 'fa-clock-rotate-left';
+  const badgeTitle = blocked ? 'ติด Blocker' : 'เกินกำหนด';
   return `
-    <button type="button" class="kanban-alert-row" onclick="app.editKanbanTask('${escapeJsAttr(task.id)}')">
-      <span class="kanban-alert-icons">
-        ${blocked ? '<i class="fa-solid fa-ban" title="ติด Blocker"></i>' : ''}
-        ${overdue ? '<i class="fa-solid fa-clock-rotate-left" title="เกินกำหนด"></i>' : ''}
-      </span>
+    <button type="button" class="kanban-alert-row ${severityCls}" onclick="app.editKanbanTask('${escapeJsAttr(task.id)}')">
+      <span class="kanban-alert-badge" title="${badgeTitle}"><i class="fa-solid ${badgeIcon}"></i></span>
       <span class="kanban-alert-body">
         <strong>${escapeHTML(task.title || 'งานไม่มีชื่อ')}</strong>
         <span class="kanban-alert-meta">
-          ${cfg ? `<em>${escapeHTML(cfg.label)}</em>` : ''}
-          <em class="${task.assignee ? '' : 'text-rose-500'}">${escapeHTML(task.assignee || 'ไม่มีเจ้าของ')}</em>
+          ${cfg ? `<span>${escapeHTML(cfg.label)}</span>` : ''}
+          <span class="${task.assignee ? '' : 'is-empty'}">${escapeHTML(task.assignee || 'ไม่มีเจ้าของ')}</span>
         </span>
-        ${reason ? `<span class="kanban-alert-reason">${escapeHTML(reason)}</span>` : ''}
+        ${reason ? `<span class="kanban-alert-reason"><i class="fa-solid fa-circle-exclamation"></i>${escapeHTML(reason)}</span>` : ''}
       </span>
-      ${_kanbanDueChip(task)}
+      <span class="kanban-alert-flags">
+        ${_kanbanDueChip(task)}
+        ${blocked ? '<span class="kanban-alert-tag">ติด Blocker</span>' : ''}
+      </span>
     </button>`;
 }
 

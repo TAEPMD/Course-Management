@@ -2115,42 +2115,64 @@ tbody tr:hover {
 
 .kanban-alert-list {
   display: grid;
-  gap: 6px;
-  max-height: 260px;
+  gap: 7px;
+  max-height: 280px;
   overflow-y: auto;
-  padding-right: 2px;
+  padding-right: 3px;
+  margin-right: -3px;
 }
 
 .kanban-alert-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: 11px;
   width: 100%;
-  padding: 8px 10px;
-  border-radius: 8px;
+  min-height: 56px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  border-left: 3px solid transparent;
   background: #f8fafc;
-  border: 1px solid rgba(148,163,184,.18);
+  border-top: 1px solid rgba(148,163,184,.18);
+  border-right: 1px solid rgba(148,163,184,.18);
+  border-bottom: 1px solid rgba(148,163,184,.18);
   text-align: left;
   cursor: pointer;
-  transition: background .15s ease;
+  transition: background .15s ease, transform .15s ease;
 }
 
 .kanban-alert-row:hover {
   background: #eef2ff;
+  transform: translateX(1px);
 }
 
-.kanban-alert-icons {
+.kanban-alert-row.is-blocked { border-left-color: #e11d48; }
+.kanban-alert-row.is-overdue { border-left-color: #d97706; }
+
+.kanban-alert-badge {
+  width: 32px;
+  height: 32px;
   display: flex;
-  gap: 5px;
-  color: #e11d48;
-  font-size: 12px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 13px;
   flex-shrink: 0;
+}
+
+.kanban-alert-row.is-blocked .kanban-alert-badge {
+  background: rgba(225,29,72,.12);
+  color: #e11d48;
+}
+
+.kanban-alert-row.is-overdue .kanban-alert-badge {
+  background: rgba(217,119,6,.14);
+  color: #b45309;
 }
 
 .kanban-alert-body {
   display: grid;
-  gap: 2px;
+  gap: 3px;
   min-width: 0;
 }
 
@@ -2165,19 +2187,68 @@ tbody tr:hover {
 
 .kanban-alert-meta {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
   font-size: 10.5px;
-  font-weight: 850;
+  font-weight: 800;
   color: #64748b;
   font-style: normal;
+  overflow: hidden;
+}
+
+.kanban-alert-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+}
+
+.kanban-alert-meta span:not(:last-child) {
+  flex-shrink: 0;
+}
+
+.kanban-alert-meta span:not(:last-child)::after {
+  content: '•';
+  margin-left: 6px;
+  color: #cbd5e1;
+  font-weight: 900;
+}
+
+.kanban-alert-meta .is-empty {
+  color: #e11d48;
 }
 
 .kanban-alert-reason {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 10.5px;
   font-weight: 800;
   color: #b91c1c;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kanban-alert-reason i {
+  font-size: 9px;
+  flex-shrink: 0;
+}
+
+.kanban-alert-flags {
+  display: grid;
+  gap: 5px;
+  justify-items: end;
+  flex-shrink: 0;
+}
+
+.kanban-alert-tag {
+  font-size: 9.5px;
+  font-weight: 900;
+  color: #e11d48;
+  background: rgba(225,29,72,.12);
+  padding: 2px 8px;
+  border-radius: 999px;
   white-space: nowrap;
 }
 
@@ -8566,7 +8637,9 @@ body.dark.visual-contrast #view-login .login-foot { color: #cbd5e1 !important; }
 
 .dark .kanban-alert-row {
   background: rgba(15,23,42,.42);
-  border-color: rgba(148,163,184,.24);
+  border-top-color: rgba(148,163,184,.24);
+  border-right-color: rgba(148,163,184,.24);
+  border-bottom-color: rgba(148,163,184,.24);
 }
 .dark .kanban-alert-row:hover {
   background: rgba(30,41,59,.65);
@@ -8576,4 +8649,22 @@ body.dark.visual-contrast #view-login .login-foot { color: #cbd5e1 !important; }
 }
 .dark .kanban-alert-meta {
   color: #94a3b8;
+}
+.dark .kanban-alert-meta span:not(:last-child)::after {
+  color: #475569;
+}
+.dark .kanban-alert-row.is-blocked .kanban-alert-badge {
+  background: rgba(225,29,72,.22);
+  color: #fda4af;
+}
+.dark .kanban-alert-row.is-overdue .kanban-alert-badge {
+  background: rgba(217,119,6,.24);
+  color: #fbbf24;
+}
+.dark .kanban-alert-tag {
+  background: rgba(225,29,72,.22);
+  color: #fda4af;
+}
+.dark .kanban-alert-reason {
+  color: #fca5a5;
 }
