@@ -2008,16 +2008,19 @@ function _renderKanbanAlertRow({ task, blocked, overdue }) {
   const severityCls = blocked ? 'is-blocked' : 'is-overdue';
   const badgeIcon = blocked ? 'fa-ban' : 'fa-clock-rotate-left';
   const badgeTitle = blocked ? 'ติด Blocker' : 'เกินกำหนด';
+  const title = task.title || 'งานไม่มีชื่อ';
+  // ชื่อยาว/เหตุผลยาวถูกตัดด้วย ellipsis จึงใส่ tooltip ให้อ่านข้อความเต็มได้
+  const tooltip = [badgeTitle, title, reason].filter(Boolean).join(' — ');
   return `
-    <button type="button" class="kanban-alert-row ${severityCls}" onclick="app.editKanbanTask('${escapeJsAttr(task.id)}')">
-      <span class="kanban-alert-badge" title="${badgeTitle}"><i class="fa-solid ${badgeIcon}"></i></span>
+    <button type="button" class="kanban-alert-row ${severityCls}" title="${escapeHTML(tooltip)}" onclick="app.editKanbanTask('${escapeJsAttr(task.id)}')">
+      <span class="kanban-alert-badge" aria-hidden="true"><i class="fa-solid ${badgeIcon}"></i></span>
       <span class="kanban-alert-body">
-        <strong>${escapeHTML(task.title || 'งานไม่มีชื่อ')}</strong>
+        <strong>${escapeHTML(title)}</strong>
         <span class="kanban-alert-meta">
           ${cfg ? `<span>${escapeHTML(cfg.label)}</span>` : ''}
           <span class="${task.assignee ? '' : 'is-empty'}">${escapeHTML(task.assignee || 'ไม่มีเจ้าของ')}</span>
         </span>
-        ${reason ? `<span class="kanban-alert-reason"><i class="fa-solid fa-circle-exclamation"></i>${escapeHTML(reason)}</span>` : ''}
+        ${reason ? `<span class="kanban-alert-reason"><i class="fa-solid fa-circle-exclamation"></i><span>${escapeHTML(reason)}</span></span>` : ''}
       </span>
       <span class="kanban-alert-flags">
         ${_kanbanDueChip(task)}

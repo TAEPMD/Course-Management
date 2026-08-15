@@ -2113,32 +2113,40 @@ tbody tr:hover {
   grid-column: 1 / -1;
 }
 
+/* ห้ามใช้ grid กับลิสต์นี้: พอ max-height ตัดความสูง เบราว์เซอร์จะบีบ track
+   ลงมาเหลือเท่า min-height ของแถว จนบรรทัด "รอ: ..." ตกออกนอกกรอบ
+   flex column + flex-shrink: 0 ที่แถว กันการบีบได้แน่นอนกว่าทุกเบราว์เซอร์ */
 .kanban-alert-list {
-  display: grid;
-  gap: 7px;
-  max-height: 280px;
+  display: flex;
+  flex-direction: column;
+  align-self: start;
+  gap: 8px;
+  width: 100%;
+  max-height: min(340px, 46vh);
   overflow-y: auto;
-  padding-right: 3px;
-  margin-right: -3px;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 4px;
+  margin-right: -4px;
 }
 
 .kanban-alert-row {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) auto;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  grid-template-areas: 'badge body flags';
   align-items: start;
-  gap: 11px;
+  gap: 6px 11px;
   width: 100%;
+  flex: 0 0 auto;
   min-height: 56px;
-  padding: 10px 12px;
-  border-radius: 9px;
+  padding: 11px 13px;
+  border-radius: 10px;
+  border: 1px solid rgba(148,163,184,.18);
   border-left: 3px solid transparent;
   background: #f8fafc;
-  border-top: 1px solid rgba(148,163,184,.18);
-  border-right: 1px solid rgba(148,163,184,.18);
-  border-bottom: 1px solid rgba(148,163,184,.18);
   text-align: left;
   cursor: pointer;
-  transition: background .15s ease, transform .15s ease;
+  transition: background .15s ease, transform .15s ease, box-shadow .15s ease;
 }
 
 .kanban-alert-row:hover {
@@ -2146,18 +2154,25 @@ tbody tr:hover {
   transform: translateX(1px);
 }
 
+.kanban-alert-row:focus-visible {
+  outline: none;
+  background: #eef2ff;
+  box-shadow: var(--ring);
+}
+
 .kanban-alert-row.is-blocked { border-left-color: #e11d48; }
 .kanban-alert-row.is-overdue { border-left-color: #d97706; }
 
 .kanban-alert-badge {
-  width: 32px;
-  height: 32px;
-  margin-top: 2px;
+  grid-area: badge;
+  width: 30px;
+  height: 30px;
+  margin-top: 1px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: 9px;
+  font-size: 12.5px;
   flex-shrink: 0;
 }
 
@@ -2172,88 +2187,100 @@ tbody tr:hover {
 }
 
 .kanban-alert-body {
+  grid-area: body;
   display: grid;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
 }
 
+/* line-height 1.5 ขึ้นไป กันสระบน/วรรณยุกต์โดน overflow: hidden เฉือน
+   และ font-weight ไม่เกิน 700 เพราะ Sarabun มีน้ำหนักสูงสุด 700 เกินกว่านั้นเบราว์เซอร์ปลอมตัวหนาให้จนตัวอักษรบวม */
 .kanban-alert-body strong {
-  font-size: 12.5px;
-  font-weight: 900;
-  color: #0f172a;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.5;
+  color: #0f172a;
+  overflow-wrap: anywhere;
 }
 
 .kanban-alert-meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 1px 6px;
   font-size: 10.5px;
-  font-weight: 800;
+  font-weight: 600;
+  line-height: 1.5;
   color: #64748b;
   font-style: normal;
-  overflow: hidden;
+  min-width: 0;
 }
 
 .kanban-alert-meta span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex-shrink: 1;
-}
-
-.kanban-alert-meta span:not(:last-child) {
-  flex-shrink: 0;
 }
 
 .kanban-alert-meta span:not(:last-child)::after {
   content: '•';
   margin-left: 6px;
   color: #cbd5e1;
-  font-weight: 900;
 }
 
 .kanban-alert-meta .is-empty {
   color: #e11d48;
+  font-weight: 700;
 }
 
 .kanban-alert-reason {
   display: flex;
-  align-items: center;
-  gap: 4px;
+  align-items: flex-start;
+  gap: 5px;
+  min-width: 0;
   font-size: 10.5px;
-  font-weight: 800;
+  font-weight: 600;
+  line-height: 1.5;
   color: #b91c1c;
+}
+
+.kanban-alert-reason i {
+  margin-top: .35em;
+  font-size: 9px;
+  flex-shrink: 0;
+}
+
+.kanban-alert-reason span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.kanban-alert-reason i {
-  font-size: 9px;
-  flex-shrink: 0;
-}
-
 .kanban-alert-flags {
+  grid-area: flags;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 5px;
-  margin-top: 2px;
+  margin-top: 1px;
   flex-shrink: 0;
-  min-width: 0;
 }
 
 .kanban-alert-tag {
   display: inline-block;
   width: max-content;
   font-size: 9.5px;
-  font-weight: 900;
+  font-weight: 700;
+  line-height: 1.5;
   color: #e11d48;
   background: rgba(225,29,72,.12);
-  padding: 2px 8px;
+  padding: 1px 8px;
   border-radius: 999px;
   white-space: nowrap;
   flex-shrink: 0;
@@ -3520,6 +3547,22 @@ button:disabled,
   .kanban-filters {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* พื้นที่แคบ ย้ายชิปกำหนดส่ง/Blocker ลงมาไว้ใต้ชื่องาน จะได้ไม่ไปบีบข้อความจนตกกรอบ */
+  .kanban-alert-row {
+    grid-template-columns: 30px minmax(0, 1fr);
+    grid-template-areas:
+      'badge body'
+      'badge flags';
+  }
+
+  .kanban-alert-flags {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    margin-top: 2px;
   }
 }
 
@@ -5615,7 +5658,9 @@ textarea,
   padding: 2px 8px;
   border-radius: 8px;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
+  line-height: 1.6;
+  white-space: nowrap;
 }
 .kanban-due-chip.due-none    { color: #64748b; background: rgba(148,163,184,.16); }
 .kanban-due-chip.due-soon    { color: #b45309; background: rgba(245,158,11,.18); }
@@ -8648,7 +8693,8 @@ body.dark.visual-contrast #view-login .login-foot { color: #cbd5e1 !important; }
   border-right-color: rgba(148,163,184,.24);
   border-bottom-color: rgba(148,163,184,.24);
 }
-.dark .kanban-alert-row:hover {
+.dark .kanban-alert-row:hover,
+.dark .kanban-alert-row:focus-visible {
   background: rgba(30,41,59,.65);
 }
 .dark .kanban-alert-body strong {
