@@ -356,15 +356,24 @@ tbody tr:hover {
 .status-done   { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
 
 /* Project general information intelligence */
+
+/* โทนเดียว ใช้ซ้ำได้ทุกชิ้นในแผง: ตัวเลขไหนดี/ต้องระวัง/ต้องแก้ ดูจากสีได้ทันที */
+.project-info-command .tone-ok,
+.project-info-command.tone-ok { --tone: #047857; --tone-line: #10b981; --tone-soft: rgba(16,185,129,.12); }
+.project-info-command .tone-warn,
+.project-info-command.tone-warn { --tone: #b45309; --tone-line: #f59e0b; --tone-soft: rgba(245,158,11,.14); }
+.project-info-command .tone-risk,
+.project-info-command.tone-risk { --tone: #be123c; --tone-line: #f43f5e; --tone-soft: rgba(244,63,94,.12); }
+.project-info-command .tone-idle,
+.project-info-command.tone-idle { --tone: #475569; --tone-line: #94a3b8; --tone-soft: rgba(148,163,184,.16); }
+
 .project-info-command {
   display: grid;
-  gap: 14px;
+  gap: 12px;
   padding: 16px;
   border: 1px solid rgba(148,163,184,.22);
-  border-radius: 8px;
-  background:
-    linear-gradient(135deg, rgba(15,118,110,.08), rgba(37,99,235,.05) 42%, rgba(255,255,255,.9)),
-    #ffffff;
+  border-radius: 10px;
+  background: #ffffff;
   box-shadow: var(--shadow-soft);
 }
 
@@ -373,118 +382,117 @@ tbody tr:hover {
 .project-info-bottom,
 .project-info-meta,
 .project-info-card-head,
-.project-info-facts,
-.signal-row {
+.project-info-facts {
   display: grid;
 }
 
 .project-info-hero {
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
   align-items: center;
-  gap: 16px;
+  gap: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(148,163,184,.2);
 }
 
 .project-info-label {
-  color: #0f766e;
+  color: #64748b;
   font-size: 11px;
-  font-weight: 950;
-  letter-spacing: .04em;
+  font-weight: 700;
+  letter-spacing: .06em;
   text-transform: uppercase;
 }
 
 .project-info-copy h3 {
-  margin-top: 4px;
+  margin-top: 2px;
   color: #0f172a;
-  font-size: clamp(1.35rem, 2.3vw, 2rem);
-  line-height: 1.18;
-  font-weight: 950;
+  font-size: clamp(1.25rem, 2vw, 1.75rem);
+  line-height: 1.2;
+  font-weight: 800;
 }
 
 .project-info-meta {
   grid-template-columns: repeat(3, max-content);
-  gap: 8px;
-  margin-top: 10px;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .project-info-meta span {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 30px;
-  padding: 5px 9px;
-  border-radius: 8px;
+  min-height: 26px;
+  padding: 3px 9px;
+  border-radius: 999px;
   color: #475569;
-  background: rgba(255,255,255,.76);
+  background: #f8fafc;
   border: 1px solid rgba(148,163,184,.24);
   font-size: 12px;
-  font-weight: 850;
+  font-weight: 600;
   white-space: nowrap;
 }
 
+/* คำตัดสินคือสิ่งที่ต้องอ่านก่อน จึงใส่พื้นสีตามโทนและวางคู่กับเรื่องที่ต้องปิดอันดับแรก */
 .project-decision-gauge {
-  width: min(100%, 210px);
   display: grid;
-  grid-template-columns: 86px minmax(0, 1fr);
+  grid-template-columns: 78px minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
-  padding: 12px;
-  border-radius: 8px;
-  background: rgba(255,255,255,.82);
-  border: 1px solid rgba(148,163,184,.22);
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--tone-soft);
+  border: 1px solid var(--tone-line);
 }
 
-.gauge-ring,
-.mini-gauge {
+.gauge-ring {
   position: relative;
+  width: 78px;
+  height: 78px;
   display: grid;
   place-items: center;
   border-radius: 50%;
   background:
-    radial-gradient(circle at center, #ffffff 58%, transparent 60%),
-    conic-gradient(#0f766e var(--gauge), #e2e8f0 0);
-}
-
-.gauge-ring {
-  width: 82px;
-  height: 82px;
-}
-
-.gauge-ring strong,
-.mini-gauge strong {
-  color: #0f172a;
-  font-weight: 950;
+    radial-gradient(circle at center, #ffffff 62%, transparent 64%),
+    conic-gradient(var(--tone-line) var(--gauge), rgba(148,163,184,.28) 0);
 }
 
 .gauge-ring strong {
-  font-size: 24px;
+  color: var(--tone);
+  font-size: 26px;
   line-height: 1;
+  font-weight: 800;
 }
 
 .gauge-ring span {
-  margin-top: 24px;
-  color: #64748b;
-  font-size: 10px;
-  font-weight: 900;
   position: absolute;
+  margin-top: 26px;
+  color: #94a3b8;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
 }
 
-.project-decision-gauge p {
-  color: #334155;
-  font-size: 12px;
-  font-weight: 900;
+.decision-verdict .verdict-title {
+  color: var(--tone);
+  font-size: 14px;
+  font-weight: 800;
   line-height: 1.35;
 }
 
-.project-decision-gauge.emerald .gauge-ring,
-.project-decision-gauge.emerald { --decision-color: #10b981; }
-.project-decision-gauge.amber .gauge-ring,
-.project-decision-gauge.amber { --decision-color: #f59e0b; }
-.project-decision-gauge.rose .gauge-ring,
-.project-decision-gauge.rose { --decision-color: #ef4444; }
-.project-decision-gauge .gauge-ring {
-  background:
-    radial-gradient(circle at center, #ffffff 58%, transparent 60%),
-    conic-gradient(var(--decision-color, #0f766e) var(--gauge), #e2e8f0 0);
+.decision-verdict .verdict-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px;
+  margin-top: 5px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.decision-verdict .verdict-note i {
+  margin-top: 2px;
+  color: var(--tone);
 }
 
 .project-info-visual-grid {
@@ -497,175 +505,273 @@ tbody tr:hover {
 .project-info-facts {
   min-width: 0;
   padding: 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(148,163,184,.22);
-  background: rgba(255,255,255,.78);
+  border-radius: 10px;
+  border: 1px solid rgba(148,163,184,.24);
+  background: #ffffff;
 }
 
+/* เส้นสีด้านบนการ์ด = สถานะของตัวชี้วัดนั้น อ่านได้ตั้งแต่ยังไม่ทันอ่านตัวเลข */
 .project-info-card {
   display: grid;
   gap: 10px;
   align-content: start;
+  border-top: 3px solid var(--tone-line);
 }
 
 .project-info-card-head {
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 9px;
 }
 
 .project-info-card-head > span {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  color: #0f766e;
-  background: #ccfbf1;
+  color: var(--tone);
+  background: var(--tone-soft);
+  font-size: 13px;
 }
 
 .project-info-card-head strong {
   display: block;
   color: #0f172a;
   font-size: 13px;
-  font-weight: 950;
+  font-weight: 800;
 }
 
 .project-info-card-head small {
   display: block;
   color: #64748b;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 500;
 }
 
-.mini-gauge {
-  width: 72px;
-  height: 72px;
-  justify-self: center;
-}
-
-.mini-bar,
-.dual-bars,
-.fiscal-spark span {
-  overflow: hidden;
+.project-info-card-head .head-count {
+  padding: 3px 8px;
   border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ตัวเลขหลัก + หน่วย + ป้ายแปลผล อยู่บรรทัดเดียวกัน ไม่ต้องเดาว่าเลขนี้ดีหรือไม่ */
+.metric-headline {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.metric-headline b {
+  color: #0f172a;
+  font-size: 26px;
+  line-height: 1.1;
+  font-weight: 800;
+  letter-spacing: -.01em;
+}
+
+.metric-headline em {
+  color: #64748b;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.tone-pill {
+  margin-left: auto;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: var(--tone);
+  background: var(--tone-soft);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.metric-note {
+  color: #64748b;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+/* Readiness: 1 ช่อง = 1 หัวข้อ นับได้ว่าขาดอีกกี่หัวข้อโดยไม่ต้องคิดเลข */
+.segment-bar {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 3px;
+}
+
+.segment-bar i {
+  height: 8px;
+  border-radius: 3px;
   background: #e2e8f0;
 }
 
-.mini-bar,
-.dual-bars {
-  height: 8px;
+.segment-bar i.is-done {
+  background: var(--tone-line);
 }
 
-.mini-bar span,
-.dual-bars span,
-.dual-bars em {
+/* Progress Signal: แถบ = ค่าที่บันทึก, ขีดตั้ง = ค่าที่ระบบแนะนำ เห็นช่องว่างทันที */
+.compare-bar {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: #eef2f7;
+}
+
+.compare-bar > span {
   display: block;
   height: 100%;
   border-radius: inherit;
+  background: var(--tone-line);
 }
 
-.mini-bar span {
-  background: linear-gradient(90deg, #0f766e, #2563eb);
-}
-
-.signal-row {
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 850;
-}
-
-.signal-row b {
-  color: #0f172a;
-}
-
-.dual-bars {
-  display: grid;
-  gap: 3px;
+.compare-bar > i {
+  position: absolute;
+  top: -4px;
+  width: 3px;
   height: 18px;
-  background: transparent;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: #0f172a;
 }
 
-.dual-bars span {
-  background: #2563eb;
+/* คำอธิบายสีวางไว้ใต้แถบเสมอ ไม่ลอยตามตำแหน่งขีด จึงไม่ล้นการ์ดเมื่อค่าอยู่สุดขอบ */
+.compare-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
 }
 
-.dual-bars em {
-  background: #10b981;
+.compare-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
+.compare-legend b {
+  width: 10px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--tone-line);
+}
+
+.compare-legend i {
+  width: 3px;
+  height: 11px;
+  border-radius: 2px;
+  background: #0f172a;
+}
+
+/* Fiscal Timeline: แถบเดือน + กรอบเน้น "เดือนนี้" ให้รู้ว่ายืนอยู่ตรงไหนของช่วงงบ */
 .fiscal-spark {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 3px;
+  gap: 2px;
 }
 
 .fiscal-spark span {
-  min-height: 28px;
+  position: relative;
+  min-height: 26px;
   display: grid;
   place-items: center;
+  border-radius: 4px;
   color: #94a3b8;
+  background: #f1f5f9;
   font-size: 10px;
-  font-weight: 900;
+  font-weight: 600;
 }
 
 .fiscal-spark span.active {
-  color: #ffffff;
-  background: linear-gradient(180deg, #2563eb, #0f766e);
+  color: #0f172a;
+  background: var(--tone-line);
+  font-weight: 700;
 }
 
-.spark-caption {
-  color: #475569;
-  font-size: 12px;
-  font-weight: 900;
+.fiscal-spark span.today {
+  outline: 2px solid #0f172a;
+  outline-offset: 1px;
+  z-index: 1;
 }
 
+/* Control Balance: ทุกตัวเลขมีตัวหาร ทำให้ 0% ที่แปลว่า "ยังไม่ตั้งค่า" ต่างจาก 0% ที่แปลว่า "ยังไม่ใช้" */
 .control-matrix {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: 13px;
 }
 
-.control-matrix div {
-  min-height: 58px;
+.control-matrix > div {
   display: grid;
-  place-items: center;
-  padding: 8px;
-  border-radius: 8px;
-  background: #f8fafc;
-  border: 1px solid rgba(148,163,184,.18);
-  text-align: center;
+  gap: 3px;
+}
+
+.control-matrix p {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+}
+
+.control-matrix p span {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .control-matrix strong {
-  color: #0f172a;
-  font-size: 18px;
+  color: var(--tone);
+  font-size: 15px;
   line-height: 1;
-  font-weight: 950;
+  font-weight: 800;
 }
 
-.control-matrix span {
-  color: #64748b;
+.control-matrix small {
+  color: #94a3b8;
   font-size: 11px;
-  font-weight: 850;
+  font-weight: 500;
+}
+
+.control-matrix .control-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef2f7;
+}
+
+.control-matrix .control-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--tone-line);
 }
 
 .project-info-bottom {
-  grid-template-columns: minmax(0, 1.25fr) minmax(280px, .75fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, .65fr);
   gap: 10px;
 }
 
 .decision-actions {
   display: grid;
   gap: 10px;
+  align-content: start;
+  border-top: 3px solid #cbd5e1;
 }
 
 .decision-actions ol {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -676,46 +782,42 @@ tbody tr:hover {
   grid-template-columns: auto minmax(0, 1fr);
   gap: 9px;
   align-items: start;
-  padding: 9px 10px;
+  padding: 8px 10px;
   border-radius: 8px;
-  background: #f8fafc;
-  border: 1px solid rgba(148,163,184,.18);
+  background: var(--tone-soft);
+  border-left: 3px solid var(--tone-line);
 }
 
 .decision-actions li > span {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 7px;
-  background: #fffbeb;
-  color: #b45309;
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--tone);
   font-size: 11px;
-  font-weight: 950;
-}
-
-.decision-actions li.is-good > span {
-  background: #ecfdf5;
-  color: #047857;
+  font-weight: 800;
 }
 
 .decision-actions p {
   margin: 0;
   color: #334155;
   font-size: 12px;
-  font-weight: 850;
+  font-weight: 600;
   line-height: 1.45;
 }
 
 .project-info-facts {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+  align-content: start;
 }
 
 .project-info-facts div {
   min-width: 0;
-  padding: 9px 10px;
+  padding: 8px 10px;
   border-radius: 8px;
   background: #f8fafc;
   border: 1px solid rgba(148,163,184,.18);
@@ -725,7 +827,7 @@ tbody tr:hover {
   display: block;
   color: #64748b;
   font-size: 11px;
-  font-weight: 850;
+  font-weight: 500;
 }
 
 .project-info-facts strong {
@@ -733,7 +835,7 @@ tbody tr:hover {
   overflow: hidden;
   color: #0f172a;
   font-size: 13px;
-  font-weight: 950;
+  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -743,7 +845,6 @@ tbody tr:hover {
 }
 
 .dark .project-info-command,
-.dark .project-decision-gauge,
 .dark .project-info-card,
 .dark .decision-actions,
 .dark .project-info-facts {
@@ -751,49 +852,71 @@ tbody tr:hover {
   border-color: rgba(148,163,184,.24);
 }
 
-.dark .gauge-ring,
-.dark .mini-gauge {
-  background:
-    radial-gradient(circle at center, #0f172a 58%, transparent 60%),
-    conic-gradient(#0f766e var(--gauge), rgba(148,163,184,.24) 0);
-}
+.dark .project-info-command .tone-ok,
+.dark .project-info-command.tone-ok { --tone: #34d399; --tone-soft: rgba(16,185,129,.18); }
+.dark .project-info-command .tone-warn,
+.dark .project-info-command.tone-warn { --tone: #fbbf24; --tone-soft: rgba(245,158,11,.18); }
+.dark .project-info-command .tone-risk,
+.dark .project-info-command.tone-risk { --tone: #fb7185; --tone-soft: rgba(244,63,94,.18); }
+.dark .project-info-command .tone-idle,
+.dark .project-info-command.tone-idle { --tone: #cbd5e1; --tone-soft: rgba(148,163,184,.2); }
 
-.dark .project-decision-gauge .gauge-ring {
+.dark .gauge-ring {
   background:
-    radial-gradient(circle at center, #0f172a 58%, transparent 60%),
-    conic-gradient(var(--decision-color, #0f766e) var(--gauge), rgba(148,163,184,.24) 0);
+    radial-gradient(circle at center, #0f172a 62%, transparent 64%),
+    conic-gradient(var(--tone-line) var(--gauge), rgba(148,163,184,.24) 0);
 }
 
 .dark .project-info-copy h3,
-.dark .gauge-ring strong,
-.dark .mini-gauge strong,
 .dark .project-info-card-head strong,
-.dark .signal-row b,
-.dark .control-matrix strong,
+.dark .metric-headline b,
 .dark .decision-actions p,
 .dark .project-info-facts strong {
   color: #f8fafc;
 }
 
+.dark .decision-verdict .verdict-note,
+.dark .control-matrix p span {
+  color: #cbd5e1;
+}
+
 .dark .project-info-meta span,
-.dark .control-matrix div,
-.dark .decision-actions li,
-.dark .project-info-facts div {
+.dark .project-info-facts div,
+.dark .project-info-card-head .head-count {
   background: rgba(30,41,59,.72);
   border-color: rgba(148,163,184,.2);
+  color: #cbd5e1;
+}
+
+.dark .segment-bar i:not(.is-done),
+.dark .compare-bar,
+.dark .control-matrix .control-bar,
+.dark .fiscal-spark span:not(.active) {
+  background: rgba(148,163,184,.22);
+}
+
+.dark .metric-note,
+.dark .control-matrix small,
+.dark .project-info-facts span,
+.dark .project-info-card-head small {
+  color: #94a3b8;
+}
+
+.dark .compare-bar > i,
+.dark .compare-legend i { background: #f8fafc; }
+.dark .fiscal-spark span.today { outline-color: #f8fafc; }
+.dark .decision-actions li > span { background: rgba(15,23,42,.9); }
+
+@media (max-width: 1279px) {
+  .project-info-visual-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1023px) {
-  .project-info-visual-grid,
+  .project-info-hero,
   .project-info-bottom {
-    grid-template-columns: 1fr 1fr;
-  }
-  .project-info-hero {
     grid-template-columns: 1fr;
-  }
-  .project-decision-gauge {
-    width: 100%;
-    grid-template-columns: auto minmax(0, 1fr);
   }
 }
 
@@ -803,13 +926,23 @@ tbody tr:hover {
   }
   .project-info-meta,
   .project-info-visual-grid,
-  .project-info-bottom,
   .project-info-facts {
     grid-template-columns: 1fr;
   }
   .project-info-meta span {
     white-space: normal;
   }
+  .project-decision-gauge {
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 10px;
+  }
+  .gauge-ring {
+    width: 64px;
+    height: 64px;
+  }
+  .gauge-ring strong { font-size: 22px; }
+  .gauge-ring span { margin-top: 21px; }
+  .fiscal-spark span { font-size: 9px; }
 }
 
 /* Project progress decision advisor */

@@ -445,13 +445,66 @@ function getProjectInfoDraft(base = state.currentProject) {
   return project;
 }
 
+/* โทนสีเดียวกันทั้งแผง: ok = เขียว, warn = เหลือง, risk = แดง, idle = เทา (ยังไม่มีข้อมูล) */
+const INFO_TONE_RANK = { risk: 0, warn: 1, idle: 2, ok: 3 };
+
+function toneFromScore(score, good = 85, fair = 60) {
+  return score >= good ? 'ok' : score >= fair ? 'warn' : 'risk';
+}
+
+function toneFromLegacy(tone) {
+  return { emerald: 'ok', amber: 'warn', rose: 'risk' }[tone] || 'idle';
+}
+
+function worstTone(...tones) {
+  return tones.reduce((worst, tone) => (INFO_TONE_RANK[tone] < INFO_TONE_RANK[worst] ? tone : worst), 'ok');
+}
+
+/* แปลงช่วงเดือนงบประมาณเป็น "อยู่เดือนที่เท่าไร เหลืออีกกี่เดือน" เพื่อให้ตัดสินใจได้ทันที */
+function getFiscalTimelineInsight(startMonth, endMonth, todayMonth = getTodayFiscalMonth()) {
+  const range = getFiscalMonthRange(startMonth || 1, endMonth || 12);
+  const position = range.indexOf(todayMonth);
+  const total = range.length;
+
+  if (position < 0) {
+    const notStarted = total > 0 && todayMonth < range[0];
+    return {
+      range,
+      total,
+      elapsed: notStarted ? 0 : total,
+      remaining: notStarted ? total : 0,
+      timePct: notStarted ? 0 : 100,
+      tone: notStarted ? 'idle' : 'warn',
+      headline: notStarted ? 'ยังไม่เริ่ม' : 'พ้นกำหนด',
+      note: notStarted ? 'ยังไม่ถึงเดือนเริ่มดำเนินงาน' : 'เลยช่วงดำเนินงานที่วางไว้แล้ว'
+    };
+  }
+
+  const elapsed = position + 1;
+  const remaining = total - elapsed;
+  const timePct = Math.round((elapsed / total) * 100);
+  return {
+    range,
+    total,
+    elapsed,
+    remaining,
+    timePct,
+    tone: remaining <= 1 ? 'warn' : 'ok',
+    headline: `เดือนที่ ${elapsed}/${total}`,
+    note: remaining === 0
+      ? 'เดือนสุดท้ายของช่วงดำเนินงาน'
+      : `เหลืออีก ${remaining} เดือน (เวลาผ่านไป ${timePct}%)`
+  };
+}
+
 function getProjectInfoDecision(project) {
   const health = getProjectHealthInsight(project);
   const progress = getProjectProgressInsight(project);
   const tasks = getTaskStats(project);
   const schedule = getScheduleStats(project);
   const budget = getBudgetUsage(project);
-  const readinessScore = health.readiness.score;
+  const readiness = health.readiness;
+  const readinessScore = readiness.score;
   const budgetControl = budget.budget ? Math.max(0, 100 - Math.max(0, budget.pct - 100)) : 35;
   const decisionScore = Math.round(
     (readinessScore * 0.34) +
@@ -460,22 +513,86 @@ function getProjectInfoDecision(project) {
     (tasks.pct * 0.14) +
     (budgetControl * 0.12)
   );
-  const tone = decisionScore >= 80 ? 'emerald' : decisionScore >= 55 ? 'amber' : 'rose';
+  const tone = toneFromScore(decisionScore, 80, 55);
   const decisionText = decisionScore >= 80
     ? 'พร้อมเดินหน้าหรืออนุมัติขั้นถัดไป'
     : decisionScore >= 55
       ? 'เดินหน้าได้ แต่ควรปิดช่องว่างสำคัญก่อน'
       : 'ควรเติมข้อมูลและลดความเสี่ยงก่อนตัดสินใจ';
-  const actions = [
-    ...health.reasons,
+
+  const extraWarnings = [
     ...(progress.gap < -15 ? [`ความคืบหน้าที่บันทึกต่ำกว่าระบบแนะนำ ${Math.abs(progress.gap)}%`] : []),
     ...(tasks.overdue ? [`งาน Kanban เกินกำหนด ${tasks.overdue} รายการ`] : []),
     ...(schedule.total === 0 ? ['ยังไม่มีกำหนดการอบรม'] : []),
     ...(budget.budget === 0 ? ['ยังไม่ได้ตั้งงบประมาณ baseline'] : []),
     ...(!project.successCriteria ? ['ยังไม่มีเกณฑ์ความสำเร็จที่ใช้ปิดโครงการ'] : []),
-  ].slice(0, 4);
+  ];
+  const issueSet = new Set(health.issues);
+  const actions = [...health.reasons, ...extraWarnings]
+    .filter((text, index, list) => list.indexOf(text) === index)
+    .map(text => ({ text, tone: issueSet.has(text) ? 'risk' : 'warn' }))
+    .sort((a, b) => INFO_TONE_RANK[a.tone] - INFO_TONE_RANK[b.tone]);
 
-  return { health, progress, tasks, schedule, budget, readinessScore, budgetControl, decisionScore, tone, decisionText, actions };
+  /* ตัวชี้วัดแต่ละใบ: ตัวเลขหลัก + คำแปลผล + โทนสี ให้อ่านจบได้ในบรรทัดเดียว */
+  const gapAbs = Math.abs(progress.gap);
+  const metrics = {
+    readiness: {
+      tone: toneFromLegacy(readiness.tone),
+      value: `${readinessScore}%`,
+      caption: `${readiness.complete}/${readiness.total} หัวข้อ`,
+      status: readiness.label,
+      note: readiness.missing.length
+        ? `ยังขาด: ${readiness.missing.slice(0, 3).join(' · ')}${readiness.missing.length > 3 ? ` และอีก ${readiness.missing.length - 3} หัวข้อ` : ''}`
+        : 'ข้อมูลครบทุกหัวข้อ พร้อมใช้ตัดสินใจ'
+    },
+    progress: {
+      tone: gapAbs <= 10 ? 'ok' : gapAbs <= 25 ? 'warn' : 'risk',
+      value: `${progress.manual}%`,
+      caption: 'ที่บันทึกไว้',
+      status: progress.gap === 0
+        ? 'ตรงกับระบบแนะนำ'
+        : progress.gap > 0 ? `สูงกว่าระบบ ${gapAbs}%` : `ต่ำกว่าระบบ ${gapAbs}%`,
+      note: gapAbs <= 10
+        ? 'ค่าที่บันทึกสอดคล้องกับหลักฐานประกอบ'
+        : progress.gap > 0
+          ? 'ค่าที่บันทึกสูงกว่าหลักฐาน ควรตรวจก่อนอนุมัติ'
+          : `ระบบแนะนำ ${progress.suggested}% จากข้อมูลที่มีอยู่จริง`
+    },
+    control: [
+      {
+        key: 'budget',
+        label: 'ใช้งบประมาณ',
+        pct: budget.pct,
+        tone: budget.budget === 0 ? 'risk' : budget.pct >= 100 ? 'risk' : budget.pct >= 85 ? 'warn' : 'ok',
+        detail: budget.budget === 0
+          ? 'ยังไม่ตั้งงบ baseline'
+          : `${formatCurrency(budget.expense)} / ${formatCurrency(budget.budget)} บาท`
+      },
+      {
+        key: 'tasks',
+        label: 'งานเสร็จแล้ว',
+        pct: tasks.pct,
+        tone: tasks.total === 0 ? 'idle' : tasks.overdue ? 'risk' : tasks.pct >= 60 ? 'ok' : 'warn',
+        detail: tasks.total === 0
+          ? 'ยังไม่มีงานใน Kanban'
+          : `${tasks.done}/${tasks.total} งาน${tasks.overdue ? ` · เกินกำหนด ${tasks.overdue}` : ''}`
+      },
+      {
+        key: 'schedule',
+        label: 'รอบอบรมผ่านแล้ว',
+        pct: schedule.pct,
+        tone: schedule.total === 0 ? 'risk' : 'ok',
+        detail: schedule.total === 0
+          ? 'ยังไม่มีรอบอบรม'
+          : `${schedule.completed}/${schedule.total} รอบ`
+      }
+    ]
+  };
+
+  return {
+    health, progress, tasks, schedule, budget, readiness, readinessScore,
+    budgetControl, decisionScore, tone, decisionText, actions, metrics
+  };
 }
 
 function renderProjectInfoVisualPanel(project = state.currentProject) {
@@ -485,23 +602,33 @@ function renderProjectInfoVisualPanel(project = state.currentProject) {
   const insight = getProjectInfoDecision(draft);
   const priorityLabel = { high: 'สูง', medium: 'ปานกลาง', low: 'ต่ำ' }[draft.priority] || 'ปานกลาง';
   const categoryLabel = document.getElementById('input-proj-category')?.selectedOptions?.[0]?.textContent || draft.category || '-';
+  const timeline = getFiscalTimelineInsight(draft.startMonth, draft.endMonth);
+  const todayMonth = getTodayFiscalMonth();
   const fiscalMonths = FISCAL_MONTH_NAMES.map((month, index) => {
     const monthNo = index + 1;
-    const active = isFiscalMonthInRange(monthNo, draft.startMonth || 1, draft.endMonth || 12);
-    return `<span class="${active ? 'active' : ''}" title="${month}">${month.slice(0, 3)}</span>`;
+    const classes = [
+      timeline.range.includes(monthNo) ? 'active' : '',
+      monthNo === todayMonth ? 'today' : ''
+    ].filter(Boolean).join(' ');
+    return `<span class="${classes}" title="${month}${monthNo === todayMonth ? ' (เดือนนี้)' : ''}">${month.replace(/\./g, '')}</span>`;
   }).join('');
-  const readinessAngle = Math.min(100, Math.max(0, insight.readinessScore)) * 3.6;
   const decisionAngle = Math.min(100, Math.max(0, insight.decisionScore)) * 3.6;
+  const readinessCells = Array.from(
+    { length: insight.readiness.total },
+    (_, index) => `<i class="${index < insight.readiness.complete ? 'is-done' : ''}"></i>`
+  ).join('');
   const actionMarkup = insight.actions.length
-    ? insight.actions.map((item, index) => `
-        <li>
+    ? insight.actions.slice(0, 4).map((item, index) => `
+        <li class="tone-${item.tone}">
           <span>${index + 1}</span>
-          <p>${escapeHTML(item)}</p>
+          <p>${escapeHTML(item.text)}</p>
         </li>`).join('')
-    : '<li class="is-good"><span><i class="fa-solid fa-check"></i></span><p>ข้อมูลสำคัญพร้อมใช้งาน ยังไม่พบประเด็นเร่งด่วน</p></li>';
+    : '<li class="tone-ok is-good"><span><i class="fa-solid fa-check"></i></span><p>ข้อมูลสำคัญพร้อมใช้งาน ยังไม่พบประเด็นเร่งด่วน</p></li>';
+  const topAction = insight.actions[0];
+  const controlTone = worstTone(...insight.metrics.control.map(item => item.tone));
 
   panel.innerHTML = `
-    <section class="project-info-command">
+    <section class="project-info-command tone-${insight.tone}">
       <div class="project-info-hero">
         <div class="project-info-copy">
           <p class="project-info-label">General Information Intelligence</p>
@@ -512,56 +639,81 @@ function renderProjectInfoVisualPanel(project = state.currentProject) {
             <span><i class="fa-solid fa-flag"></i>Priority ${escapeHTML(priorityLabel)}</span>
           </div>
         </div>
-        <div class="project-decision-gauge ${insight.tone}">
+        <div class="project-decision-gauge tone-${insight.tone}">
           <div class="gauge-ring" style="--gauge:${decisionAngle}deg">
             <strong>${insight.decisionScore}</strong>
             <span>Decision</span>
           </div>
-          <p>${insight.decisionText}</p>
+          <div class="decision-verdict">
+            <p class="verdict-title">${insight.decisionText}</p>
+            <p class="verdict-note">${topAction
+              ? `<i class="fa-solid ${topAction.tone === 'risk' ? 'fa-circle-exclamation' : 'fa-triangle-exclamation'}"></i><span>ต้องปิดก่อน ${insight.actions.length} เรื่อง — ${escapeHTML(topAction.text)}</span>`
+              : '<i class="fa-solid fa-circle-check"></i><span>ไม่พบประเด็นค้างที่ต้องปิดก่อนอนุมัติ</span>'}</p>
+          </div>
         </div>
       </div>
 
       <div class="project-info-visual-grid">
-        <div class="project-info-card readiness">
+        <div class="project-info-card tone-${insight.metrics.readiness.tone}">
           <div class="project-info-card-head">
             <span><i class="fa-solid fa-clipboard-check"></i></span>
             <div><strong>Readiness</strong><small>ความครบถ้วนของข้อมูล</small></div>
           </div>
-          <div class="mini-gauge" style="--gauge:${readinessAngle}deg"><strong>${insight.readinessScore}%</strong></div>
-          <div class="mini-bar"><span style="width:${insight.readinessScore}%"></span></div>
+          <div class="metric-headline">
+            <b>${insight.metrics.readiness.value}</b>
+            <em>${insight.metrics.readiness.caption}</em>
+            <span class="tone-pill">${escapeHTML(insight.metrics.readiness.status)}</span>
+          </div>
+          <div class="segment-bar" title="${insight.readiness.complete}/${insight.readiness.total} หัวข้อ">${readinessCells}</div>
+          <p class="metric-note">${escapeHTML(insight.metrics.readiness.note)}</p>
         </div>
 
-        <div class="project-info-card">
+        <div class="project-info-card tone-${insight.metrics.progress.tone}">
           <div class="project-info-card-head">
             <span><i class="fa-solid fa-chart-line"></i></span>
             <div><strong>Progress Signal</strong><small>บันทึกเทียบกับระบบแนะนำ</small></div>
           </div>
-          <div class="signal-row"><span>บันทึกไว้</span><b>${insight.progress.manual}%</b></div>
-          <div class="signal-row"><span>ระบบแนะนำ</span><b>${insight.progress.suggested}%</b></div>
-          <div class="dual-bars">
-            <span style="width:${insight.progress.manual}%"></span>
-            <em style="width:${insight.progress.suggested}%"></em>
+          <div class="metric-headline">
+            <b>${insight.metrics.progress.value}</b>
+            <em>${insight.metrics.progress.caption}</em>
+            <span class="tone-pill">${escapeHTML(insight.metrics.progress.status)}</span>
           </div>
+          <div class="compare-bar" title="แถบ = ค่าที่บันทึกไว้ / ขีด = ค่าที่ระบบแนะนำ">
+            <span style="width:${insight.progress.manual}%"></span>
+            <i style="left:${Math.min(99, Math.max(1, insight.progress.suggested))}%"></i>
+          </div>
+          <div class="compare-legend">
+            <span><b></b>บันทึกไว้ ${insight.progress.manual}%</span>
+            <span><i></i>ระบบแนะนำ ${insight.progress.suggested}%</span>
+          </div>
+          <p class="metric-note">${escapeHTML(insight.metrics.progress.note)}</p>
         </div>
 
-        <div class="project-info-card">
+        <div class="project-info-card tone-${timeline.tone}">
           <div class="project-info-card-head">
             <span><i class="fa-solid fa-route"></i></span>
             <div><strong>Fiscal Timeline</strong><small>ช่วงเดือนตามปีงบประมาณ</small></div>
           </div>
+          <div class="metric-headline">
+            <b>${escapeHTML(timeline.headline)}</b>
+            <em>${escapeHTML(FISCAL_MONTH_NAMES[(draft.startMonth || 1) - 1])} – ${escapeHTML(FISCAL_MONTH_NAMES[(draft.endMonth || 12) - 1])}</em>
+          </div>
           <div class="fiscal-spark">${fiscalMonths}</div>
-          <p class="spark-caption">${FISCAL_MONTH_NAMES[(draft.startMonth || 1) - 1]} - ${FISCAL_MONTH_NAMES[(draft.endMonth || 12) - 1]}</p>
+          <p class="metric-note">${escapeHTML(timeline.note)}</p>
         </div>
 
-        <div class="project-info-card">
+        <div class="project-info-card tone-${controlTone}">
           <div class="project-info-card-head">
             <span><i class="fa-solid fa-scale-balanced"></i></span>
             <div><strong>Control Balance</strong><small>งบ งาน และกำหนดการ</small></div>
           </div>
           <div class="control-matrix">
-            <div><strong>${insight.budget.pct}%</strong><span>ใช้งบ</span></div>
-            <div><strong>${insight.tasks.pct}%</strong><span>งานเสร็จ</span></div>
-            <div><strong>${insight.schedule.pct}%</strong><span>รอบผ่านแล้ว</span></div>
+            ${insight.metrics.control.map(item => `
+              <div class="tone-${item.tone}">
+                <p><span>${escapeHTML(item.label)}</span><strong>${item.pct}%</strong></p>
+                <div class="control-bar"><span style="width:${Math.min(100, item.pct)}%"></span></div>
+                <small>${escapeHTML(item.detail)}</small>
+              </div>`).join('')}
           </div>
         </div>
       </div>
@@ -571,12 +723,13 @@ function renderProjectInfoVisualPanel(project = state.currentProject) {
           <div class="project-info-card-head">
             <span><i class="fa-solid fa-bullseye"></i></span>
             <div><strong>Next Decision Points</strong><small>สิ่งที่ควรปิดก่อนอนุมัติ/เดินหน้าต่อ</small></div>
+            ${insight.actions.length ? `<b class="head-count">${insight.actions.length} เรื่อง</b>` : ''}
           </div>
           <ol>${actionMarkup}</ol>
         </div>
         <div class="project-info-facts">
-          <div><span>ผู้จัดการ</span><strong>${escapeHTML(draft.projectManager || '-')}</strong></div>
-          <div><span>ผู้สนับสนุน</span><strong>${escapeHTML(draft.sponsor || '-')}</strong></div>
+          <div><span>ผู้จัดการ</span><strong title="${escapeHTML(draft.projectManager || '-')}">${escapeHTML(draft.projectManager || '-')}</strong></div>
+          <div><span>ผู้สนับสนุน</span><strong title="${escapeHTML(draft.sponsor || '-')}">${escapeHTML(draft.sponsor || '-')}</strong></div>
           <div><span>CME/CEU</span><strong>${Number(draft.cme || 0).toLocaleString()} หน่วยกิต</strong></div>
           <div><span>งบประมาณ</span><strong>${formatCurrency(insight.budget.budget)} บาท</strong></div>
         </div>
